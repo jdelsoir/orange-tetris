@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Orange Tetris - E2E module harness</title>
+<style>
+  html,body{margin:0;background:#111;color:#eee;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace}
+  #results{padding:12px}
+  #results div{white-space:pre}
+  .p{color:#50BE87}.f{color:#FF7900;font-weight:700}.d{color:#4BB4E6;font-weight:700;margin-top:8px}
+  #stage{position:fixed;left:-99999px;top:0;width:600px;height:700px}
+  #stage #board{width:300px;height:600px;display:block}
+  #stage #next{width:120px;height:270px;display:block}
+</style>
+</head>
+<body>
+
+<!-- offscreen-ish stage: real elements, real CSS boxes, real layout, just parked off-viewport -->
+<div id="stage">
+  <canvas id="board"></canvas>
+  <canvas id="next"></canvas>
+</div>
+
+<div id="results"></div>
+
+<script>
+/* Classic script, runs BEFORE the deferred module below: install the console /
+   error traps first so module-evaluation errors are counted. */
+window.__consoleErrors = [];
+(function () {
+  var real = console.error;
+  console.error = function () {
+    window.__consoleErrors.push(Array.prototype.join.call(arguments, ' '));
+    real.apply(console, arguments);
+  };
+  window.addEventListener('error', function (e) {
+    window.__consoleErrors.push('window.onerror: ' + (e && e.message));
+  }, true);
+  window.addEventListener('unhandledrejection', function (e) {
+    window.__consoleErrors.push('unhandledrejection: ' + (e && e.reason));
+  });
+  document.addEventListener('securitypolicyviolation', function (e) {
+    window.__consoleErrors.push('csp: ' + e.violatedDirective + ' ' + e.blockedURI);
+  });
+})();
+</script>
+
+<script type="module">
+/* ------------------------------------------------------------------ *
+ * Tiny assertion runner
+ * ------------------------------------------------------------------ */
+const out = document.getElementById('results');
+let pass = 0, total = 0;
+
+function line(cls, text) {
+  const d = document.createElement('div');
+  d.className = cls;
+  d.textContent = text;
+  out.appendChild(d);
+}
+function ok(name) { total++; pass++; line('p', 'PASS ' + name); }
+function bad(name, reason) { total++; line('f', 'FAIL ' + name + ': ' + reason); }
+function check(name, cond, reason) { if (cond) ok(name); else bad(name, reason || 'assertion false'); }
+function attempt(name, fn) {
+  try { const r = fn(); if (r === false) bad(name, 'returned false'); else ok(name); }
+  catch (e) { bad(name, (e && e.message) || String(e)); }
+}
+function done() {
+  line('d', 'DONE ' + pass + '/' + total);
+  document.title = 'DONE ' + pass + '/' + total;
+  document.documentElement.setAttribute('data-e2e', 'DONE ' + pass + '/' + total);
+}
+
+/* ------------------------------------------------------------------ *
+ * Pixel helpers
+ * ------------------------------------------------------------------ */
+const hex2 = (n) => n.toString(16).padStart(2, '0');
+function hexAt(d, i) { return '#' + (hex2(d[i]) + hex2(d[i + 1]) + hex2(d[i + 2])).toUpperCase(); }
+
+function paletteSet(ctx, w, h) {
+  const d = ctx.getImageData(0, 0, w, h).data;
+  const seen = new Set();
+  for (let i = 0; i < d.length; i += 4) seen.add(hexAt(d, i));
+  return seen;
+}
+function nonBlack(ctx, w, h) {
+  const d = ctx.getImageData(0, 0, w, h).data;
+  let n = 0;
+  for (let i = 0; i < d.length; i += 4) if (d[i] || d[i + 1] || d[i + 2]) n++;
+  return n;
+}
+function grab(ctx, x, y, w, h) {
+  return Array.from(ctx.getImageData(x, y, w, h).data);
+}
+function same(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+function diffCount(a, b) {
+  let n = 0;
+  for (let i = 0; i < a.length; i += 4) {
+    if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2] || a[i + 3] !== b[i + 3]) n++;
+  }
+  return n;
+}
+
+/* Deterministic rng so the run is reproducible. */
+function seeded(seed) {
+  let s = seed >>> 0;
+  return () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
+}
+
+/* ------------------------------------------------------------------ *
+ * Run
+ * ------------------------------------------------------------------ */
+(async function run() {
+  const errorsBeforeImport = window.__consoleErrors.length;
+
+  let engineMod = null, renderMod = null, lbMod = null;
+  let importError = null;
+  try {
+    [engineMod, renderMod, lbMod] = await Promise.all([
+      import('../js/engine.js'),
+      import('../js/render.js'),
+      import('../js/leaderboard.js')
+    ]);
+  } catch (e) {
+    importError = (e && e.message) || String(e);
+  }
+
+  check('modules-import', importError === null, 'import threw: ' + importError);
+  if (importError) { done(); return; }
+
+  check('engine-exports', typeof engineMod.Engine === 'function' && engineMod.COLS === 10 && engineMod.ROWS === 20,
+    'Engine/COLS/ROWS missing');
+  check('render-exports', typeof renderMod.Renderer === 'function', 'Renderer missing');
+  check('leaderboard-exports',
+    ['loadScores', 'saveScore', 'isHighScore', 'clearScores', 'formatDate'].every((k) => typeof lbMod[k] === 'function'),
+    'leaderboard API incomplete');
+
+  const { Engine, PIECE_COLORS } = engineMod;
+  const { Renderer } = renderMod;
+
+  /* -------------------------------------------------------------- *
+   * 1. Real canvas render
+   * -------------------------------------------------------------- */
+  const boardCanvas = document.getElementById('board');
+  const nextCanvas = document.getElementById('next');
+
+  const engine = new Engine(seeded(20260909));
+  engine.start();
+
+  // Paint one locked cell of every piece type on row 18 so every palette hex
+  // is guaranteed to be on screen.
+  const types = ['I', 'J', 'L', 'O', 'S', 'T', 'Z'];
+  types.forEach((t, i) => { engine.board[18][i] = t; });
+
+  let renderer = null;
+  attempt('renderer-construct', () => { renderer = new Renderer(boardCanvas, nextCanvas); return !!renderer; });
+  if (!renderer) { done(); return; }
+
+  check('canvas-backing-store',
+    boardCanvas.width >= 300 && boardCanvas.height >= 600,
+    'board backing store is ' + boardCanvas.width + 'x' + boardCanvas.height + ' (CSS box never resolved)');
+  check('renderer-metrics', !!renderer.bm && renderer.bm.cell > 5,
+    'renderer.bm missing or cell too small: ' + JSON.stringify(renderer.bm && renderer.bm.cell));
+
+  attempt('renderer-draw-no-throw', () => { renderer.draw(engine, { clearProgress: 0 }); return true; });
+
+  const bctx = boardCanvas.getContext('2d');
+  const nctx = nextCanvas.getContext('2d');
+  const W = boardCanvas.width, H = boardCanvas.height;
+
+  const lit = nonBlack(bctx, W, H);
+  check('board-not-blank', lit > 2000, 'only ' + lit + ' non-black pixels on the board canvas');
+
+  const seen = paletteSet(bctx, W, H);
+  const missing = types.filter((t) => !seen.has(PIECE_COLORS[t].toUpperCase()));
+  check('board-palette-hexes', missing.length === 0,
+    'these palette colours never reached the pixels: ' + missing.map((t) => t + '=' + PIECE_COLORS[t]).join(', '));
+  check('board-brand-border', seen.has('#FF7900'), 'brand #FF7900 border not found in pixels');
+
+  // The exact centre of each painted cell must be the exact palette hex.
+  const m = renderer.bm;
+  const centres = types.map((t, i) => {
+    const px = m.ox + i * m.cell + Math.floor((m.cell - m.gap) / 2);
+    const py = m.oy + 18 * m.cell + Math.floor((m.cell - m.gap) / 2);
+    const d = bctx.getImageData(px, py, 1, 1).data;
+    return { t, want: PIECE_COLORS[t].toUpperCase(), got: hexAt(d, 0) };
+  });
+  const wrong = centres.filter((c) => c.got !== c.want);
+  check('board-cells-at-exact-coords', wrong.length === 0,
+    'cell centres wrong: ' + wrong.map((c) => c.t + ' want ' + c.want + ' got ' + c.got).join('; '));
+
+  const nextLit = nonBlack(nctx, nextCanvas.width, nextCanvas.height);
+  check('next-preview-not-blank', nextLit > 200, 'next-piece canvas has only ' + nextLit + ' non-black pixels');
+
+  /* -------------------------------------------------------------- *
+   * 2. Line-clear animation
+   * -------------------------------------------------------------- */
+  const CLEAR_ROW = 19;
+  const anim = new Engine(seeded(7));
+  anim.start();
+  anim.current = null;                       // no active piece during a clear
+  for (let x = 0; x < 10; x++) anim.board[CLEAR_ROW][x] = types[x % types.length];
+  anim.board[18][4] = 'T';                   // a survivor above, so we can see it is untouched
+  anim.phase = 'clearing';
+  anim.pendingClear = [CLEAR_ROW];
+
+  const rowY = m.oy + CLEAR_ROW * m.cell;
+  const rowH = m.cell;
+  const rowX = m.ox;
+  const rowW = m.fw;
+  const bandOf = () => grab(bctx, rowX, rowY, rowW, rowH);
+
+  const steps = [0, 0.2, 0.5, 0.9, 1.0];
+  const bands = {};
+  const fulls = {};
+  for (const p of steps) {
+    renderer.draw(anim, { clearProgress: p });
+    bands[p] = bandOf();
+    fulls[p] = grab(bctx, 0, 0, W, H);
+  }
+
+  // Every consecutive pair of frames must actually differ inside the clearing row.
+  let animOk = true, animWhy = [];
+  for (let i = 1; i < steps.length; i++) {
+    const a = steps[i - 1], b = steps[i];
+    const d = diffCount(bands[a], bands[b]);
+    if (d === 0) { animOk = false; animWhy.push(a + '->' + b + ' identical'); }
+    else animWhy.push(a + '->' + b + '=' + d + 'px');
+  }
+  check('clear-anim-frames-differ', animOk, animWhy.join(', '));
+  line('p', '     (clearing-row pixel deltas: ' + animWhy.join(', ') + ')');
+
+  // And all five must be pairwise distinct, not just neighbour-distinct.
+  let pairwise = true, pairWhy = '';
+  for (let i = 0; i < steps.length && pairwise; i++) {
+    for (let j = i + 1; j < steps.length; j++) {
+      if (same(bands[steps[i]], bands[steps[j]])) { pairwise = false; pairWhy = steps[i] + ' == ' + steps[j]; break; }
+    }
+  }
+  check('clear-anim-frames-pairwise-distinct', pairwise, pairWhy);
+
+  // Rows that are not clearing must not move while the animation runs.
+  const survivorPx = () => {
+    const px = m.ox + 4 * m.cell + Math.floor((m.cell - m.gap) / 2);
+    const py = m.oy + 18 * m.cell + Math.floor((m.cell - m.gap) / 2);
+    const d = bctx.getImageData(px, py, 1, 1).data;
+    return hexAt(d, 0);
+  };
+  renderer.draw(anim, { clearProgress: 0.5 });
+  const surv = survivorPx();
+  check('clear-anim-leaves-other-rows-alone', surv === PIECE_COLORS.T.toUpperCase(),
+    'row 18 pixel is ' + surv + ', expected ' + PIECE_COLORS.T);
+
+  // Determinism: the same clearProgress must produce byte-identical pixels,
+  // even after other frames have been drawn in between.
+  let detOk = true, detWhy = [];
+  for (const p of steps) {
+    renderer.draw(anim, { clearProgress: p });
+    const again = grab(bctx, 0, 0, W, H);
+    if (!same(again, fulls[p])) { detOk = false; detWhy.push('p=' + p + ' differs on redraw'); }
+  }
+  check('clear-anim-deterministic', detOk, detWhy.join(', '));
+
+  // Immediate back-to-back redraw of one value, the narrow determinism claim.
+  renderer.draw(anim, { clearProgress: 0.5 });
+  const twiceA = grab(bctx, 0, 0, W, H);
+  renderer.draw(anim, { clearProgress: 0.5 });
+  const twiceB = grab(bctx, 0, 0, W, H);
+  check('clear-anim-same-progress-same-pixels', same(twiceA, twiceB), 'two draws at 0.5 differ');
+
+  // The animation must be visibly a *clear*: at p=1 the row is essentially gone.
+  const litAt = (p) => {
+    renderer.draw(anim, { clearProgress: p });
+    const d = bctx.getImageData(rowX, rowY, rowW, rowH).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] > 40 || d[i + 1] > 40 || d[i + 2] > 40) n++;
+    return n;
+  };
+  const lit0 = litAt(0), lit1 = litAt(1);
+  check('clear-anim-row-empties-out', lit1 < lit0 * 0.25,
+    'row still lit at p=1: ' + lit1 + ' vs ' + lit0 + ' at p=0');
+
+  /* -------------------------------------------------------------- *
+   * 3. Leaderboard against real localStorage
+   * -------------------------------------------------------------- */
+  const { loadScores, saveScore, isHighScore, clearScores, formatDate, STORAGE_KEY } = lbMod;
+
+  let storageReal = false;
+  try {
+    window.localStorage.setItem('__probe', '1');
+    storageReal = window.localStorage.getItem('__probe') === '1';
+    window.localStorage.removeItem('__probe');
+  } catch (e) { storageReal = false; }
+  check('localstorage-available', storageReal, 'window.localStorage is not usable in this context');
+
+  clearScores();
+  check('leaderboard-starts-empty', loadScores().length === 0, 'clearScores() left entries behind');
+
+  // 12 runs, scores 100..1200, each a minute apart, saved in a shuffled order.
+  const order = [7, 2, 11, 0, 5, 9, 3, 1, 8, 4, 10, 6];
+  for (const i of order) {
+    saveScore(
+      { score: (i + 1) * 100, lines: i, level: 1 + Math.floor(i / 2) },
+      new Date(Date.UTC(2026, 0, 2, 9, i, 0)).toISOString()
+    );
+  }
+
+  const list = loadScores();
+  check('leaderboard-caps-at-10', list.length === 10, 'kept ' + list.length + ' of 12 saved scores');
+
+  const scores = list.map((e) => e.score);
+  const sortedDesc = scores.every((s, i) => i === 0 || scores[i - 1] >= s);
+  check('leaderboard-descending', sortedDesc, 'order was ' + scores.join(','));
+  check('leaderboard-keeps-the-best-10',
+    JSON.stringify(scores) === JSON.stringify([1200, 1100, 1000, 900, 800, 700, 600, 500, 400, 300]),
+    'kept ' + scores.join(',') + ' (the two lowest, 100 and 200, should have been dropped)');
+
+  check('leaderboard-fields-intact',
+    list.every((e) => typeof e.score === 'number' && typeof e.lines === 'number' && typeof e.level === 'number'),
+    'a score/lines/level field is not a number');
+
+  const datesPresent = list.every((e) => typeof e.date === 'string' && e.date.trim() !== '');
+  check('leaderboard-dates-present', datesPresent, 'an entry has no date');
+
+  const fmt = list.map((e) => formatDate(e.date));
+  const fmtRe = /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/;
+  const badFmt = fmt.filter((s) => !fmtRe.test(s));
+  check('leaderboard-dates-formatted', badFmt.length === 0,
+    'these formatted dates do not match DD/MM/YYYY HH:mm: ' + badFmt.join(' | '));
+  line('p', '     (top entry date renders as "' + fmt[0] + '")');
+  check('formatDate-rejects-garbage',
+    formatDate('') === '-' && formatDate('not-a-date') === '-' && formatDate(null) === '-',
+    'formatDate did not fall back to "-"');
+
+  // isHighScore boundary behaviour at a full board.
+  const lowest = list[list.length - 1].score;   // 300
+  check('isHighScore-below-cut', isHighScore(lowest - 1) === false, 'a score below the 10th qualified');
+  check('isHighScore-equal-to-cut', isHighScore(lowest) === false,
+    'a score equal to the 10th qualified (the older incumbent wins the tie)');
+  check('isHighScore-above-cut', isHighScore(lowest + 1) === true, 'a score above the 10th did not qualify');
+  check('isHighScore-zero-and-negative',
+    isHighScore(0) === false && isHighScore(-10) === false, '0 or a negative score qualified');
+
+  // Reload simulation A: read the raw bytes out of real localStorage.
+  let raw = null, parsed = null;
+  try { raw = window.localStorage.getItem(STORAGE_KEY); parsed = JSON.parse(raw); } catch (e) { parsed = null; }
+  check('leaderboard-persisted-to-localStorage',
+    Array.isArray(parsed) && parsed.length === 10 &&
+    JSON.stringify(parsed.map((e) => e.score)) === JSON.stringify(scores),
+    'raw localStorage[' + STORAGE_KEY + '] does not hold the same 10 scores: ' + String(raw).slice(0, 120));
+
+  // Reload simulation B: a brand-new module instance (fresh in-memory mirror)
+  // must reconstruct the same list purely from storage.
+  const fresh = await import('../js/leaderboard.js?reload=' + Date.now());
+  const freshList = fresh.loadScores();
+  check('leaderboard-survives-reload',
+    freshList.length === 10 && JSON.stringify(freshList.map((e) => e.score)) === JSON.stringify(scores),
+    'a freshly imported module read back ' + freshList.map((e) => e.score).join(','));
+  check('leaderboard-reload-keeps-dates',
+    freshList.every((e) => fmtRe.test(fresh.formatDate(e.date))),
+    'dates did not survive the reload in a formattable state');
+
+  // A new high score after a reload must slot in at the right rank.
+  fresh.saveScore({ score: 5000, lines: 40, level: 5 }, new Date(Date.UTC(2026, 0, 3, 10, 0, 0)).toISOString());
+  const after = loadScores();
+  check('leaderboard-insert-at-top',
+    after.length === 10 && after[0].score === 5000 && after[after.length - 1].score === 400,
+    'after inserting 5000 the list is ' + after.map((e) => e.score).join(','));
+
+  /* -------------------------------------------------------------- *
+   * 4. Zero console errors for the whole run
+   * -------------------------------------------------------------- */
+  await new Promise((r) => setTimeout(r, 60));
+  const errs = window.__consoleErrors;
+  check('zero-console-errors', errs.length === 0,
+    errs.length + ' console error(s): ' + errs.slice(0, 5).join(' || '));
+  check('zero-console-errors-during-module-load', errs.length === errorsBeforeImport,
+    'errors appeared during import: ' + errs.slice(errorsBeforeImport, errorsBeforeImport + 3).join(' || '));
+
+  done();
+})().catch((e) => {
+  bad('harness', (e && e.stack) || String(e));
+  done();
+});
+</script>
+</body>
+</html>

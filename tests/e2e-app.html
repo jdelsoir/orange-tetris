@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Orange Tetris - E2E app harness</title>
+<style>
+  html,body{margin:0;background:#111;color:#eee;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace}
+  #results{padding:12px}
+  #results div{white-space:pre}
+  .p{color:#50BE87}.f{color:#FF7900;font-weight:700}.d{color:#4BB4E6;font-weight:700;margin-top:8px}
+  /* The real app, at a real phone viewport, in a real frame. No app code is touched. */
+  #app-frame{position:fixed;right:0;top:0;width:430px;height:900px;border:0}
+</style>
+</head>
+<body>
+
+<div id="results"></div>
+<iframe id="app-frame" title="app under test"></iframe>
+
+<script type="module">
+const out = document.getElementById('results');
+let pass = 0, total = 0;
+function line(cls, text) { const d = document.createElement('div'); d.className = cls; d.textContent = text; out.appendChild(d); }
+function ok(n) { total++; pass++; line('p', 'PASS ' + n); }
+function bad(n, r) { total++; line('f', 'FAIL ' + n + ': ' + r); }
+function check(n, c, r) { if (c) ok(n); else bad(n, r || 'assertion false'); }
+let step = 'boot';
+function mark(s) { step = s; document.documentElement.setAttribute('data-step', s); }
+function done() {
+  line('d', 'DONE ' + pass + '/' + total);
+  document.title = 'DONE ' + pass + '/' + total;
+  document.documentElement.setAttribute('data-e2e', 'DONE ' + pass + '/' + total);
+}
+
+const KEY_CODES = {
+  ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ' ': 'Space'
+};
+
+/** Dispatch a genuine KeyboardEvent from the app's own realm, on the focused
+ *  element, so it bubbles element -> document -> window exactly like a real key. */
+function key(win, type, k) {
+  const doc = win.document;
+  const target = doc.activeElement && doc.activeElement !== doc.documentElement ? doc.activeElement : doc.body;
+  const ev = new win.KeyboardEvent(type, {
+    key: k, code: KEY_CODES[k] || k, bubbles: true, cancelable: true, composed: true, view: win
+  });
+  target.dispatchEvent(ev);
+  return ev;
+}
+
+/** A real click, constructed in the app's realm. */
+function click(win, el) {
+  const ev = new win.MouseEvent('click', { bubbles: true, cancelable: true, view: win, detail: 1 });
+  el.dispatchEvent(ev);
+  return ev;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* Headless Chrome has no vsync source, so requestAnimationFrame fires once or
+   twice after a paint and then starves (measured: RAFCOUNT<=2 in 600ms across
+   --disable-gpu / --run-all-compositor-stages-before-draw / --disable-gpu-vsync).
+   The app's rAF game loop therefore cannot self-drive here. Input stays 100%
+   real DOM events; only the CLOCK is hand-cranked, through ui.step(dt), which
+   js/ui.js documents as "Public so tests can drive the clock by hand".
+   `pump(0)` runs one logical frame with zero elapsed time: HUD sync + repaint,
+   no gravity. */
+let PUMP = null;
+function pump(dt) { if (PUMP) PUMP.step(dt); }
+async function settle(dt) { pump(typeof dt === 'number' ? dt : 0); await sleep(5); }
+
+function visible(win, el) {
+  if (!el) return false;
+  const cs = win.getComputedStyle(el);
+  if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') return false;
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0;
+}
+function filledCells(engine) {
+  let n = 0;
+  for (const row of engine.board) for (const c of row) if (c) n++;
+  return n;
+}
+function canvasStats(win, canvas) {
+  const ctx = canvas.getContext('2d');
+  const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  let lit = 0, h = 2166136261;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i] || d[i + 1] || d[i + 2]) lit++;
+    h ^= d[i] + d[i + 1] * 3 + d[i + 2] * 7; h = Math.imul(h, 16777619);
+  }
+  return { lit, hash: (h >>> 0).toString(16) };
+}
+
+/* Seed real localStorage before the app boots, so the leaderboard screen has
+   something to render. Same origin as index.html, so this is the app's storage. */
+const SEED = [];
+for (let i = 0; i < 10; i++) {
+  SEED.push({
+    score: (10 - i) * 500, lines: (10 - i) * 4, level: 1 + ((10 - i) % 10),
+    date: new Date(Date.UTC(2026, 8, 1 + i, 18, 5 + i, 0)).toISOString()
+  });
+}
+try { localStorage.setItem('orange-tetris.scores.v1', JSON.stringify(SEED)); } catch (e) { /* reported below */ }
+
+(async function run() {
+  const iframe = document.getElementById('app-frame');
+  const loaded = new Promise((res, rej) => {
+    // NB: a long-lived timer here is fast-forwarded by --virtual-time-budget and
+    // eats the budget, so it is cleared the moment the frame loads.
+    const t = setTimeout(() => rej(new Error('iframe load timed out')), 3000);
+    iframe.addEventListener('load', () => { clearTimeout(t); res(); }, { once: true });
+  });
+  iframe.src = '../index.html';
+  try { await loaded; } catch (e) { bad('app-iframe-loads', e.message); done(); return; }
+
+  const win = iframe.contentWindow;
+  const doc = win.document;
+  const $ = (id) => doc.getElementById(id);
+
+  // main.js boots on DOMContentLoaded and publishes window.tetris.
+  for (let i = 0; i < 200 && !win.tetris; i++) await sleep(10);
+  check('app-iframe-loads', !!win.tetris, 'window.tetris never appeared - js/main.js did not boot');
+  if (!win.tetris) { done(); return; }
+
+  const { engine, ui } = win.tetris;
+  PUMP = ui;
+  line('p', '     (note: headless has no vsync; the app\'s rAF loop is hand-cranked via ui.step(dt) - input is real)');
+  check('app-markup-contract-complete', ui.dom.missing.length === 0,
+    'collectDom() reported missing ids: ' + ui.dom.missing.join(', '));
+  check('app-title', doc.title === 'Orange Tetris', 'document.title is "' + doc.title + '"');
+
+  mark('start-screen');
+  /* ---- start screen ---- */
+  await settle();
+  check('app-boots-on-start-screen',
+    $('screen-start').classList.contains('screen--active') && visible(win, $('screen-start')),
+    'start screen is not the active/visible screen');
+  check('app-game-screen-hidden-at-boot', !visible(win, $('screen-game')), '#screen-game is visible before New game');
+  check('app-start-buttons-present', !!$('btn-new-game') && !!$('btn-leaderboard') && visible(win, $('btn-new-game')),
+    'start-screen buttons missing or invisible');
+
+  mark('btn-leaderboard');
+  /* ---- #btn-leaderboard from the start screen ---- */
+  click(win, $('btn-leaderboard'));
+  await settle();
+  check('app-btn-leaderboard-shows-leaderboard',
+    $('screen-leaderboard').classList.contains('screen--active') && visible(win, $('screen-leaderboard')),
+    '#screen-leaderboard did not become active/visible after clicking #btn-leaderboard');
+  check('app-leaderboard-hides-start', !visible(win, $('screen-start')), '#screen-start still visible behind the leaderboard');
+
+  const rows = $('leaderboard-list').querySelectorAll('tr');
+  check('app-leaderboard-renders-rows', rows.length === 10, 'leaderboard rendered ' + rows.length + ' rows, expected 10');
+  const firstCells = rows.length ? Array.from(rows[0].querySelectorAll('td')).map((td) => td.textContent) : [];
+  check('app-leaderboard-row-shape',
+    firstCells.length === 5 && firstCells[0] === '1' && firstCells[1] === '5000' &&
+    /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/.test(firstCells[4]),
+    'rank-1 row reads [' + firstCells.join(' | ') + ']');
+  check('app-leaderboard-empty-note-hidden',
+    !$('leaderboard-empty') || !visible(win, $('leaderboard-empty')),
+    '"No scores yet" is showing even though there are 10 rows');
+
+  click(win, $('btn-lb-back'));
+  await settle();
+  check('app-leaderboard-back-returns-to-start',
+    $('screen-start').classList.contains('screen--active') && visible(win, $('screen-start')),
+    'Back did not return to the start screen');
+
+  mark('btn-new-game');
+  /* ---- #btn-new-game ---- */
+  click(win, $('btn-new-game'));
+  await settle();
+  check('app-new-game-shows-game-screen',
+    $('screen-game').classList.contains('screen--active') && visible(win, $('screen-game')),
+    '#screen-game did not become active/visible after clicking #btn-new-game');
+  check('app-new-game-starts-engine',
+    engine.phase === 'playing' && !!engine.current && !engine.gameOver && engine.paused === false,
+    'engine phase=' + engine.phase + ' paused=' + engine.paused + ' current=' + JSON.stringify(engine.current));
+
+  const board = $('board');
+  check('app-board-canvas-sized', board.width > 0 && board.height > 0,
+    'board backing store is ' + board.width + 'x' + board.height);
+  const shot0 = canvasStats(win, board);
+  check('app-board-canvas-painted', shot0.lit > 2000, 'board canvas has only ' + shot0.lit + ' non-black pixels');
+
+  /* ---- the board fits the phone viewport ---- */
+  const br = board.getBoundingClientRect();
+  check('app-board-inside-viewport',
+    br.top >= -1 && br.left >= -1 && br.right <= win.innerWidth + 1 && br.bottom <= win.innerHeight + 1,
+    'board rect ' + JSON.stringify({ t: Math.round(br.top), l: Math.round(br.left), r: Math.round(br.right), b: Math.round(br.bottom) }) +
+    ' vs viewport ' + win.innerWidth + 'x' + win.innerHeight);
+  check('app-no-horizontal-overflow',
+    doc.documentElement.scrollWidth <= win.innerWidth + 1,
+    'document scrollWidth ' + doc.documentElement.scrollWidth + ' > viewport ' + win.innerWidth);
+
+  mark('keyboard');
+  /* ---- real KeyboardEvents ---- */
+  const x0 = engine.current.x;
+  const evL = key(win, 'keydown', 'ArrowLeft');
+  const xL = engine.current ? engine.current.x : null;
+  key(win, 'keyup', 'ArrowLeft');
+  check('app-key-ArrowLeft-moves-piece', xL === x0 - 1, 'x went ' + x0 + ' -> ' + xL);
+  check('app-key-ArrowLeft-preventDefault', evL.defaultPrevented === true,
+    'the app did not preventDefault on ArrowLeft, so arrows would scroll the page');
+
+  const evR = key(win, 'keydown', 'ArrowRight');
+  const xR = engine.current ? engine.current.x : null;
+  key(win, 'keyup', 'ArrowRight');
+  check('app-key-ArrowRight-moves-piece', xR === x0, 'x went ' + xL + ' -> ' + xR + ', expected back to ' + x0);
+
+  const rot0 = engine.current.rot;
+  const type0 = engine.current.type;
+  key(win, 'keydown', 'ArrowUp');
+  const rot1 = engine.current ? engine.current.rot : null;
+  key(win, 'keyup', 'ArrowUp');
+  check('app-key-ArrowUp-rotates-piece', rot1 === (rot0 + 1) % 4,
+    'piece ' + type0 + ' rot went ' + rot0 + ' -> ' + rot1);
+
+  const yBefore = engine.current.y;
+  key(win, 'keydown', 'ArrowDown');
+  const yAfter = engine.current ? engine.current.y : null;
+  key(win, 'keyup', 'ArrowDown');
+  check('app-key-ArrowDown-soft-drops', yAfter === yBefore + 1, 'y went ' + yBefore + ' -> ' + yAfter);
+
+  const cellsBefore = filledCells(engine);
+  const scoreBefore = engine.score;
+  const evSp = key(win, 'keydown', ' ');
+  const cellsAfter = filledCells(engine);
+  const scoreAfter = engine.score;
+  key(win, 'keyup', ' ');
+  check('app-key-Space-hard-drops',
+    cellsAfter === cellsBefore + 4,
+    'locked cells went ' + cellsBefore + ' -> ' + cellsAfter + ' (expected +4), phase=' + engine.phase);
+  check('app-hard-drop-scores', scoreAfter > scoreBefore, 'score went ' + scoreBefore + ' -> ' + scoreAfter);
+  check('app-key-Space-preventDefault', evSp.defaultPrevented === true, 'Space would scroll the page');
+
+  mark('canvas-repaint');
+  /* ---- the canvas actually repaints after input ---- */
+  pump(0);
+  const shotMid = canvasStats(win, board);
+  for (let i = 0; i < 3; i++) { key(win, 'keydown', 'ArrowLeft'); key(win, 'keyup', 'ArrowLeft'); }
+  pump(0);
+  const shot1 = canvasStats(win, board);
+  check('app-board-canvas-updates', shot1.hash !== shotMid.hash,
+    'board pixels are byte-identical after moving the live piece 3 columns left (hash ' + shotMid.hash + ')');
+  check('app-board-canvas-updates-vs-newgame', shot1.hash !== shot0.hash,
+    'board pixels never changed at all since the game started (hash ' + shot0.hash + ')');
+  line('p', '     (board pixel hash ' + shot0.hash + ' [new game] -> ' + shotMid.hash + ' [after drop] -> ' + shot1.hash + ' [after 3x left])');
+
+  /* ---- HUD reflects the engine ---- */
+  await settle();
+  // The HUD is written from inside the rAF loop, so it may legitimately trail
+  // the engine by at most one frame; it must never lead it, nor stay at zero.
+  const hudScore = Number($('hud-score').textContent);
+  check('app-hud-score-tracks-engine',
+    Number.isFinite(hudScore) && hudScore > 0 && hudScore <= Math.trunc(engine.score),
+    'hud-score reads "' + $('hud-score').textContent + '", engine.score=' + engine.score);
+  const hudLevel = Number($('hud-level').textContent);
+  const hudLines = Number($('hud-lines').textContent);
+  check('app-hud-level-tracks-engine',
+    hudLevel >= 1 && hudLevel <= engine.level && hudLines >= 0 && hudLines <= engine.lines,
+    'hud level/lines read "' + hudLevel + '"/"' + hudLines + '", engine ' + engine.level + '/' + engine.lines);
+
+  mark('raf-loop');
+  /* ---- the rAF loop itself, when the host actually paints ----
+     Headless Chrome has no vsync, so requestAnimationFrame starves after one or
+     two callbacks and this cannot be proven here. Rather than assert something
+     that would always fail headless, count real rAF ticks first and only make
+     the claim when the host is genuinely animating (>= 5 ticks in 200ms). In a
+     windowed browser this fails loudly if the loop ever stops driving step(). */
+  {
+    let ticks = 0;
+    let stop = false;
+    const bump = () => { ticks++; if (!stop) win.requestAnimationFrame(bump); };
+    win.requestAnimationFrame(bump);
+
+    let autoSteps = 0;
+    const realStep = ui.step.bind(ui);
+    ui.step = (dt) => { autoSteps++; return realStep(dt); };
+    await sleep(200);          // deliberately NOT pumping: any step is the loop's
+    stop = true;
+    ui.step = realStep;
+
+    if (ticks >= 5) {
+      check('app-raf-loop-drives-the-game', autoSteps >= 3,
+        'requestAnimationFrame ticked ' + ticks + ' times in 200ms but ui.step() ran ' +
+        autoSteps + ' times: the game loop is not driving the engine');
+    } else {
+      line('p', '     (skipped app-raf-loop-drives-the-game: only ' + ticks +
+        ' rAF ticks in 200ms - this host has no vsync, run headful to cover the loop)');
+    }
+  }
+
+  mark('pause');
+  /* ---- pause is wired ---- */
+  click(win, $('btn-pause'));
+  await settle();
+  check('app-pause-works', engine.paused === true && visible(win, $('pause-overlay')),
+    'paused=' + engine.paused + ' overlayVisible=' + visible(win, $('pause-overlay')));
+  click(win, $('btn-pause'));
+  await settle();
+  check('app-resume-works', engine.paused === false && !visible(win, $('pause-overlay')),
+    'paused=' + engine.paused + ' after resume');
+
+  mark('quit');
+  /* ---- quit back to start ---- */
+  click(win, $('btn-quit'));
+  await settle();
+  check('app-quit-returns-to-start',
+    $('screen-start').classList.contains('screen--active') && visible(win, $('screen-start')),
+    'Quit did not return to the start screen');
+
+  done();
+  mark('finished');
+})().catch((e) => { bad('app-harness at step "' + step + '"', (e && e.stack) || String(e)); done(); });
+</script>
+</body>
+</html>

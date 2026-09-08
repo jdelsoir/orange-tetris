@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Orange Tetris - screenshot driver</title>
+<style>
+  /* Capture geometry. Headless Chrome (152) does not honour --window-size as a
+     viewport: it clamps the window to a 500px MINIMUM WIDTH and reserves 143px
+     of HEIGHT that it never renders, yet still writes a PNG of the requested
+     window size. A phone viewport is therefore only obtainable inside a frame.
+     Launch with --window-size=max(500,VW),VH+286 and crop the capture to VWxVH
+     with `sips -c VH VW` (a CENTRED crop):
+       horizontal - frame is centred by margin:auto, so both offsets are
+                    (windowW - VW) / 2 and the crop lands exactly on it;
+       vertical   - the 143px margin-top below puts the frame at y=143 in a
+                    (VH+286)-tall capture, which is exactly (VH+286-VH)/2. */
+  html,body{margin:0;padding:0;overflow:hidden;background:#000}
+  #f{display:block;border:0;margin:143px auto 0}
+</style>
+</head>
+<body>
+<iframe id="f" title="Orange Tetris"></iframe>
+<script type="module">
+/* Drives the real app inside the frame into a named scene, then stops.
+   No app code is modified. Every action is a real DOM event; the only
+   concession to headless Chrome (no vsync, so the app's rAF loop cannot
+   self-drive) is hand-cranking ui.step(dt), the clock entry point that
+   js/ui.js already exposes for driving the loop by hand. */
+const q = new URLSearchParams(location.search);
+const scene = q.get('scene') || 'start';
+/* The frame, not the window, is the viewport under test. */
+const VW = Number(q.get('w')) || 430;
+const VH = Number(q.get('h')) || 900;
+/* window height is VH + 286, of which Chrome renders VH + 143 */
+document.documentElement.style.height = (VH + 143) + 'px';
+document.body.style.height = (VH + 143) + 'px';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const SEED = [
+  { score: 18400, lines: 62, level: 7 }, { score: 15250, lines: 55, level: 6 },
+  { score: 12900, lines: 48, level: 5 }, { score: 9600, lines: 37, level: 4 },
+  { score: 7350, lines: 30, level: 4 },  { score: 5100, lines: 24, level: 3 },
+  { score: 3800, lines: 18, level: 2 },  { score: 2450, lines: 12, level: 2 },
+  { score: 1600, lines: 8, level: 1 },   { score: 900, lines: 4, level: 1 }
+].map((e, i) => ({ ...e, date: new Date(Date.UTC(2026, 7, 12 + i, 19, 4 + i * 7, 0)).toISOString() }));
+
+try {
+  if (scene === 'start' || scene === 'empty-leaderboard') localStorage.removeItem('orange-tetris.scores.v1');
+  else localStorage.setItem('orange-tetris.scores.v1', JSON.stringify(SEED));
+} catch (e) { /* nothing to do */ }
+
+(async function () {
+  const f = document.getElementById('f');
+  f.style.width = VW + 'px';
+  f.style.height = VH + 'px';
+  await new Promise((r) => { f.addEventListener('load', r, { once: true }); f.src = '../index.html'; });
+  const win = f.contentWindow, doc = win.document;
+  for (let i = 0; i < 200 && !win.tetris; i++) await sleep(10);
+  if (!win.tetris) { document.documentElement.setAttribute('data-scene', 'BOOT-FAILED'); return; }
+
+  const { engine, ui } = win.tetris;
+  const $ = (id) => doc.getElementById(id);
+  const click = (el) => el.dispatchEvent(new win.MouseEvent('click', { bubbles: true, cancelable: true, view: win }));
+  const tap = (k) => {
+    const t = doc.body;
+    t.dispatchEvent(new win.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, view: win }));
+    t.dispatchEvent(new win.KeyboardEvent('keyup', { key: k, bubbles: true, cancelable: true, view: win }));
+  };
+  const pump = (dt) => ui.step(dt);
+  const finishClear = () => { let g = 0; while (engine.phase === 'clearing' && g++ < 8) { pump(0); pump(600); } };
+  /** Slam the piece to the left wall, step right `col` times, drop it. */
+  const dropAt = (col, rotate) => {
+    for (let i = 0; i < 6; i++) tap('ArrowLeft');
+    if (rotate) tap('ArrowUp');
+    for (let i = 0; i < col; i++) tap('ArrowRight');
+    tap(' ');
+    finishClear();
+  };
+
+  if (scene === 'leaderboard' || scene === 'empty-leaderboard') {
+    click($('btn-leaderboard'));
+  } else if (scene === 'game' || scene === 'ghost' || scene === 'paused' || scene === 'gameover') {
+    click($('btn-new-game'));
+    if (scene === 'gameover') {
+      for (let i = 0; i < 300 && !engine.gameOver; i++) { tap(' '); finishClear(); }
+    } else {
+      // A deliberately spread, jagged stack: a game that has clearly been played.
+      const plan = [[0, 0], [3, 1], [6, 0], [8, 1], [1, 0], [5, 0], [7, 1], [2, 0], [4, 1], [0, 0], [6, 0]];
+      for (const [col, rot] of plan) { if (engine.gameOver) break; dropAt(col, rot); }
+      // Leave a piece genuinely in flight, part way down, ghost showing below it.
+      if (!engine.gameOver) {
+        tap('ArrowUp');
+        for (let i = 0; i < 3; i++) tap('ArrowRight');
+        // 'ghost' keeps the piece up high so the landing outline is far below it
+        if (scene !== 'ghost') for (let i = 0; i < 6; i++) tap('ArrowDown');
+      }
+      if (scene === 'paused') click($('btn-pause'));
+    }
+    pump(0);
+  }
+
+  await sleep(30);
+  pump(0);
+  document.documentElement.setAttribute('data-scene',
+    scene + '|screen=' + ui.screen + '|score=' + engine.score + '|lines=' + engine.lines +
+    '|level=' + engine.level + '|over=' + engine.gameOver + '|vp=' + win.innerWidth + 'x' + win.innerHeight);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,61 @@
+# Deploy Orange Tetris (pure static PWA, no build step) to GitHub Pages.
+# One-time setup: Settings -> Pages -> Source = "GitHub Actions".
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No build step: plain ES modules, no npm dependencies, nothing to compile.
+
+      - name: Ensure .nojekyll
+        run: touch .nojekyll
+
+      # The suite runs locally with `node --test tests/`; it is not part of the site.
+      # This only touches the ephemeral checkout, never the repository.
+      - name: Keep the test suite out of the published site
+        run: rm -rf tests
+
+      # Rotate the service-worker cache name on every deploy. Without this the
+      # cache name is fixed and returning visitors keep the old assets forever.
+      - name: Stamp the service-worker cache version
+        run: |
+          VERSION=$(find . -path ./.git -prune -o -type f \
+              \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name '*.webmanifest' \) -print \
+            | sort | xargs cat | sha256sum | cut -c1-12)
+          sed -i "s/__CACHE_VERSION__/${VERSION}/g" sw.js
+          if grep -q '__CACHE_VERSION__' sw.js; then
+            echo "::error::__CACHE_VERSION__ placeholder still present in sw.js"
+            exit 1
+          fi
+          echo "sw.js cache name -> orange-tetris-v1-${VERSION}"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

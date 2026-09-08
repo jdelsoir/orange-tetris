@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<!-- Static fallback page: no scripts at all, so script-src can be 'none'. -->
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta name="theme-color" content="#FF7900">
+<meta name="color-scheme" content="dark">
+<title>Offline &mdash; Tetris</title>
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<style>
+  :root{ --orange:#FF7900; --black:#000000; --grey-light:#D6D6D6; --grey-mid:#8F8F8F; --grey-dark:#595959; }
+  *{box-sizing:border-box}
+  body{font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;display:grid;place-items:center;
+    min-height:100vh;margin:0;background:var(--black);color:#FFFFFF}
+  .card{padding:2rem;max-width:32rem;width:100%}
+  .mark{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;width:46px;height:31px;margin-bottom:1.75rem}
+  .mark i{background:var(--orange)}
+  .mark i.off{background:transparent}
+  h1{font-size:clamp(2rem,9vw,3.25rem);font-weight:700;line-height:.9;letter-spacing:-.038em;
+    text-transform:uppercase;margin:0 0 1rem}
+  p{color:var(--grey-light);line-height:1.5;border-left:2px solid var(--orange);padding-left:14px;margin:0 0 1.75rem}
+  a.btn{display:inline-block;padding:.85rem 1.6rem;background:var(--orange);color:var(--black);
+    font-weight:700;text-transform:uppercase;letter-spacing:.04em;text-decoration:none}
+  a.btn:hover,a.btn:focus-visible{box-shadow:0 0 0 2px var(--orange);outline:none}
+  /* #595959 is a border colour: as text on black it is 3.0:1, under the 4.5:1
+     AA floor. #8F8F8F carries the same greyscale intent at 6.5:1. */
+  small{display:block;margin-top:1.75rem;color:var(--grey-mid);border-top:1px solid var(--grey-dark);padding-top:1rem}
+</style></head>
+<body>
+<div class="card">
+  <div class="mark" aria-hidden="true"><i class="off"></i><i></i><i></i><i></i><i></i><i class="off"></i></div>
+  <h1>You&rsquo;re offline</h1>
+  <p>Orange Tetris can&rsquo;t reach the network right now. Once the game has been opened online it stays playable offline &mdash; try again, or reopen it from your home screen.</p>
+  <a class="btn" href="./">Try again</a>
+  <small>Scores are stored on this device only, so nothing is lost.</small>
+</div>
+</body></html>

@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#FF7900">
+  <meta name="color-scheme" content="dark">
+  <title>Orange Tetris</title>
+  <meta name="description" content="Orange Tetris. Ten levels, seven pieces, one local leaderboard.">
+
+  <!-- ============================================================
+       PWA
+       Paths stay relative so everything resolves under /orange-tetris/.
+       ============================================================ -->
+
+  <!-- Content-Security-Policy. GitHub Pages cannot set HTTP headers, so the policy
+       ships as this meta tag. Everything this app loads is same-origin: no CDN, no
+       fonts, no analytics, no network calls at all. The one inline script below is
+       allow-listed by its sha256 hash rather than 'unsafe-inline'.
+       Caveat: frame-ancestors / X-Frame-Options cannot be set from a meta tag. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self' 'sha256-6992And/SRLPYhm266UifUsE4F0VaLbnVGVyQBAzEaI=';
+                 style-src 'self';
+                 img-src 'self';
+                 manifest-src 'self';
+                 connect-src 'self';
+                 worker-src 'self';
+                 font-src 'self';
+                 media-src 'none';
+                 object-src 'none';
+                 frame-src 'none';
+                 base-uri 'none';
+                 form-action 'none'">
+
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Tetris">
+
+  <script>
+    /* Service worker: offline play + a non-blocking update prompt.
+       This inline script is allow-listed in the CSP above by its sha256 hash.
+       If you edit a single byte of it, regenerate that hash. */
+    (function () {
+      if (!('serviceWorker' in navigator)) return;
+
+      var wantsReload = false;
+      var reloading = false;
+
+      window.addEventListener('load', function () {
+        // updateViaCache:'none' — Pages forces Cache-Control: max-age=600 on every
+        // file, so this guarantees update checks fetch a fresh sw.js.
+        navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (reg) {
+          if (reg.waiting && navigator.serviceWorker.controller) offerUpdate(reg);
+
+          reg.addEventListener('updatefound', function () {
+            var incoming = reg.installing;
+            if (!incoming) return;
+            incoming.addEventListener('statechange', function () {
+              if (incoming.state === 'installed' && navigator.serviceWorker.controller) offerUpdate(reg);
+            });
+          });
+
+          // Check for a new deploy when the tab comes back to the foreground.
+          document.addEventListener('visibilitychange', function () {
+            if (document.visibilityState === 'visible') reg.update();
+          });
+        })['catch'](function (err) {
+          console.error('Service worker registration failed:', err);
+        });
+
+        // Only ever reload because the player asked to — never mid-game.
+        navigator.serviceWorker.addEventListener('controllerchange', function () {
+          if (!wantsReload || reloading) return;
+          reloading = true;
+          location.reload();
+        });
+      });
+
+      function offerUpdate(reg) {
+        if (document.getElementById('sw-update')) return;
+
+        var bar = document.createElement('div');
+        bar.id = 'sw-update';
+        bar.setAttribute('role', 'status');
+        // Styled through CSSOM, not a style attribute, so style-src stays 'self'.
+        paint(bar, {
+          position: 'fixed', left: '0', right: '0', bottom: '0', zIndex: '9999',
+          display: 'flex', flexWrap: 'wrap', gap: '12px',
+          alignItems: 'center', justifyContent: 'center',
+          padding: '12px 16px', background: '#000000', color: '#FFFFFF',
+          borderTop: '2px solid #FF7900',
+          font: '700 13px/1.2 "Helvetica Neue", Helvetica, Arial, sans-serif',
+          textTransform: 'uppercase', letterSpacing: '0.04em'
+        });
+
+        var label = document.createElement('span');
+        label.textContent = 'New version available';
+
+        var reload = button('Reload', { background: '#FF7900', color: '#000000' });
+        reload.addEventListener('click', function () {
+          wantsReload = true;
+          reload.disabled = true;
+          if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          else location.reload();
+        });
+
+        var later = button('Later', { background: 'transparent', color: '#D6D6D6', boxShadow: 'inset 0 0 0 1px #595959' });
+        later.addEventListener('click', function () { bar.remove(); });
+
+        bar.appendChild(label);
+        bar.appendChild(reload);
+        bar.appendChild(later);
+        document.body.appendChild(bar);
+      }
+
+      function button(text, extra) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = text;
+        paint(b, {
+          border: '0', borderRadius: '0', padding: '8px 14px', cursor: 'pointer',
+          font: 'inherit', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.04em'
+        });
+        paint(b, extra);
+        return b;
+      }
+
+      function paint(el, styles) {
+        for (var k in styles) { if (Object.prototype.hasOwnProperty.call(styles, k)) el.style[k] = styles[k]; }
+      }
+    })();
+  </script>
+
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+
+<main id="app" class="app">
+
+  <!-- ============================================================
+       START
+       ============================================================ -->
+  <section id="screen-start" class="screen screen--active screen--start" aria-labelledby="start-title">
+    <div class="stack">
+      <div class="mark" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+
+      <h1 id="start-title" class="wordmark">Tetris</h1>
+      <p class="tagline">Stack the blocks, clear the lines, beat your best.</p>
+
+      <div class="btn-row">
+        <button type="button" id="btn-new-game" class="btn btn--primary">New game</button>
+        <button type="button" id="btn-leaderboard" class="btn btn--ghost">Leaderboard</button>
+      </div>
+
+      <section class="legend" aria-labelledby="legend-title">
+        <h2 id="legend-title" class="eyebrow">Keyboard</h2>
+        <ul class="legend__list">
+          <li><kbd class="key">&#8592;</kbd><kbd class="key">&#8594;</kbd><span>Move</span></li>
+          <li><kbd class="key">&#8593;</kbd><kbd class="key">X</kbd><span>Rotate</span></li>
+          <li><kbd class="key">Z</kbd><span>Rotate back</span></li>
+          <li><kbd class="key">&#8595;</kbd><span>Soft drop</span></li>
+          <li><kbd class="key key--wide">Space</kbd><span>Hard drop</span></li>
+          <li><kbd class="key">P</kbd><kbd class="key key--wide">Esc</kbd><span>Pause</span></li>
+        </ul>
+      </section>
+
+      <p class="fineprint">Scores are stored on this device only.</p>
+    </div>
+
+    <noscript>
+      <p class="fineprint fineprint--warn">This game needs JavaScript to run.</p>
+    </noscript>
+  </section>
+
+  <!-- ============================================================
+       GAME
+       ============================================================ -->
+  <section id="screen-game" class="screen screen--game" aria-labelledby="game-title">
+    <h2 id="game-title" class="visually-hidden">Game in progress</h2>
+
+    <header class="topbar">
+      <p class="topbar__brand">Tetris</p>
+      <div class="topbar__actions">
+        <button type="button" id="btn-pause" class="btn btn--ghost btn--sm">Pause</button>
+        <button type="button" id="btn-quit" class="btn btn--ghost btn--sm btn--quiet">Quit</button>
+      </div>
+    </header>
+
+    <div class="game">
+      <div class="board-wrap">
+        <canvas id="board" width="300" height="600" tabindex="-1" role="img" aria-label="Tetris playfield, 10 columns by 20 rows">Your browser does not support canvas.</canvas>
+
+        <div id="pause-overlay" class="overlay" role="status" hidden>
+          <p class="overlay__title">Paused</p>
+          <p class="overlay__hint">Press P to resume</p>
+        </div>
+      </div>
+
+      <aside class="panel" aria-label="Game status">
+        <div class="panel__block panel__block--next">
+          <h3 class="eyebrow">Next</h3>
+          <canvas id="next" width="120" height="270" role="img" aria-label="Next three pieces">Your browser does not support canvas.</canvas>
+        </div>
+
+        <dl class="hud">
+          <div class="hud__row">
+            <dt class="hud__label">Score</dt>
+            <dd class="hud__value hud__value--hero" id="hud-score" aria-live="polite">0</dd>
+          </div>
+          <div class="hud__row">
+            <dt class="hud__label">Lines</dt>
+            <dd class="hud__value" id="hud-lines">0</dd>
+          </div>
+          <div class="hud__row">
+            <dt class="hud__label">Level</dt>
+            <dd class="hud__value" id="hud-level">1</dd>
+          </div>
+        </dl>
+      </aside>
+    </div>
+
+    <div class="touch" role="group" aria-label="Touch controls">
+      <button type="button" id="btn-left" class="touch__btn" aria-label="Move left">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 4 7 12l8 8"/></svg>
+      </button>
+      <button type="button" id="btn-rotate" class="touch__btn" aria-label="Rotate">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+      </button>
+      <button type="button" id="btn-down" class="touch__btn" aria-label="Soft drop">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 8.5 12 16l7-7.5"/></svg>
+      </button>
+      <button type="button" id="btn-right" class="touch__btn" aria-label="Move right">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 4 8 8-8 8"/></svg>
+      </button>
+      <button type="button" id="btn-drop" class="touch__btn touch__btn--accent" aria-label="Hard drop">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v10"/><path d="M6.5 8.5 12 14l5.5-5.5"/><path d="M4 19.5h16"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       LEADERBOARD
+       ============================================================ -->
+  <section id="screen-leaderboard" class="screen screen--leaderboard" aria-labelledby="lb-title">
+    <div class="stack stack--wide">
+      <header class="screen__head">
+        <h2 id="lb-title" class="title">Leaderboard</h2>
+        <p class="screen__sub">Top ten, this device</p>
+      </header>
+
+      <div class="lb-wrap">
+        <table class="lb-table">
+          <caption class="visually-hidden">Top ten scores, highest first</caption>
+          <thead>
+            <tr>
+              <th scope="col" class="col-rank">Rank</th>
+              <th scope="col" class="col-num">Score</th>
+              <th scope="col" class="col-num">Lines</th>
+              <th scope="col" class="col-num">Level</th>
+              <th scope="col" class="col-date">Date</th>
+            </tr>
+          </thead>
+          <!-- 10 rows injected by js/ui.js -->
+          <tbody id="leaderboard-list"></tbody>
+        </table>
+
+        <p id="leaderboard-empty" class="lb-empty">No scores yet</p>
+      </div>
+
+      <div class="btn-row">
+        <button type="button" id="btn-lb-back" class="btn btn--primary">Back</button>
+        <button type="button" id="btn-lb-clear" class="btn btn--ghost">Clear scores</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       GAME OVER
+       ============================================================ -->
+  <section id="screen-gameover" class="screen screen--gameover" aria-labelledby="go-title">
+    <div class="stack">
+      <p id="go-newhigh" class="badge" hidden>NEW HIGH SCORE</p>
+
+      <h2 id="go-title" class="title">Game over</h2>
+
+      <dl class="go-stats">
+        <div class="go-stats__row go-stats__row--hero">
+          <dt class="hud__label">Score</dt>
+          <dd class="go-stats__value" id="go-score">0</dd>
+        </div>
+        <div class="go-stats__row">
+          <dt class="hud__label">Lines</dt>
+          <dd class="go-stats__value" id="go-lines">0</dd>
+        </div>
+        <div class="go-stats__row">
+          <dt class="hud__label">Level</dt>
+          <dd class="go-stats__value" id="go-level">1</dd>
+        </div>
+      </dl>
+
+      <div class="btn-row">
+        <button type="button" id="btn-play-again" class="btn btn--primary">Play again</button>
+        <button type="button" id="btn-go-leaderboard" class="btn btn--ghost">Leaderboard</button>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+</body>
+</html>

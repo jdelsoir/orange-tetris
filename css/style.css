@@ -1,0 +1,898 @@
+/* ==========================================================================
+   Orange Tetris - shell styles
+   Owner: Shell agent. No game logic here.
+   Palette is locked to the Orange brand tokens; do not introduce new hues.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Tokens
+   -------------------------------------------------------------------------- */
+:root {
+  /* Brand. Only the hues this stylesheet actually paints with are declared:
+     the tetromino palette (blue #4BB4E6, green #50BE87, pink #FFB4E6,
+     purple #A885D8, yellow #FFD200, accessible orange #F16E00) belongs to
+     js/engine.js PIECE_COLORS and is drawn on canvas, never in CSS. Mirroring
+     it here would just be a second copy free to drift. */
+  --c-orange:      #FF7900;
+  --c-black:       #000000;
+  --c-white:       #FFFFFF;
+  --c-grey-light:  #D6D6D6;
+  --c-grey-mid:    #8F8F8F;
+  --c-grey-dark:   #595959;
+
+  /* Type */
+  --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --track-tight: -0.03em;
+  --track-wide: 0.14em;
+
+  /* Geometry: Orange brand is square. Nothing above 2px. */
+  --radius: 0;
+  --hairline: 1px solid var(--c-grey-dark);
+
+  /* Rhythm */
+  --gap-xs: 6px;
+  --gap-sm: 10px;
+  --gap-md: 18px;
+  --gap-lg: 28px;
+  --gap-xl: 44px;
+
+  color-scheme: dark;
+}
+
+/* --------------------------------------------------------------------------
+   2. Reset / base
+   -------------------------------------------------------------------------- */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--c-black);
+  color: var(--c-white);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.45;
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, p, dl, dd, figure, ul, ol {
+  margin: 0;
+  padding: 0;
+}
+
+ul, ol { list-style: none; }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: var(--radius);
+  margin: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+canvas { display: block; }
+
+/* Keyboard focus: white ring, always on a black gap so it reads on any fill. */
+:focus { outline: none; }
+
+:focus-visible {
+  outline: 2px solid var(--c-white);
+  outline-offset: 3px;
+}
+
+/* --------------------------------------------------------------------------
+   3. Utilities
+   -------------------------------------------------------------------------- */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.eyebrow {
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--track-wide);
+  color: var(--c-grey-mid);
+}
+
+.title {
+  font-size: clamp(1.8rem, 5vw, 2.6rem);
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: var(--track-tight);
+  text-transform: uppercase;
+}
+
+.fineprint {
+  font-size: 0.75rem;
+  color: var(--c-grey-mid);
+  letter-spacing: 0.01em;
+}
+
+.fineprint--warn { color: var(--c-orange); }
+
+/* --------------------------------------------------------------------------
+   4. App frame + screens
+   -------------------------------------------------------------------------- */
+.app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-y: auto;
+  padding:
+    calc(20px + env(safe-area-inset-top))
+    calc(20px + env(safe-area-inset-right))
+    calc(20px + env(safe-area-inset-bottom))
+    calc(20px + env(safe-area-inset-left));
+}
+
+.screen { display: none; }
+
+.screen--active {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap-md);
+  width: 100%;
+  max-width: 900px;
+  /* Auto margins centre the screen vertically but, unlike justify-content,
+     never clip the top when the content is taller than the viewport. */
+  margin-block: auto;
+}
+
+/* Vertical content column shared by the non-game screens. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--gap-md);
+  width: 100%;
+  max-width: 520px;
+}
+
+.stack--wide { max-width: 720px; }
+
+.screen__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.screen__sub {
+  font-size: 0.85rem;
+  color: var(--c-grey-mid);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* --------------------------------------------------------------------------
+   5. Buttons
+   -------------------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 50px;
+  padding: 12px 30px;
+  border: 1px solid transparent;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  transition: background-color 140ms linear, color 140ms linear,
+              border-color 140ms linear, box-shadow 140ms linear;
+}
+
+.btn--primary {
+  background: var(--c-orange);
+  color: var(--c-black);
+}
+
+.btn--primary:hover {
+  background: var(--c-white);
+  box-shadow: 0 0 24px rgba(255, 121, 0, 0.35);
+}
+
+.btn--primary:active { background: var(--c-grey-light); }
+
+.btn--ghost {
+  border-color: var(--c-orange);
+  color: var(--c-orange);
+  background: transparent;
+}
+
+.btn--ghost:hover {
+  background: var(--c-orange);
+  color: var(--c-black);
+}
+
+.btn--ghost:active {
+  background: var(--c-white);
+  border-color: var(--c-white);
+  color: var(--c-black);
+}
+
+.btn--quiet {
+  border-color: var(--c-grey-dark);
+  color: var(--c-grey-light);
+}
+
+.btn--quiet:hover {
+  background: var(--c-grey-light);
+  border-color: var(--c-grey-light);
+  color: var(--c-black);
+}
+
+.btn--sm {
+  min-height: 38px;
+  padding: 8px 16px;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-sm);
+  width: 100%;
+}
+
+.btn-row .btn { flex: 1 1 auto; }
+
+/* --------------------------------------------------------------------------
+   6. Start screen
+   -------------------------------------------------------------------------- */
+.screen--start .stack { gap: var(--gap-lg); }
+
+/* 2x2 orange square: the O tetromino, used as the mark. */
+.mark {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 3px;
+  width: 46px;
+  height: 46px;
+}
+
+.mark span { background: var(--c-orange); }
+
+.wordmark {
+  font-size: clamp(3.6rem, 17vw, 8.5rem);
+  font-weight: 700;
+  line-height: 0.86;
+  letter-spacing: -0.038em;
+  text-transform: uppercase;
+  margin-top: -6px;
+}
+
+.tagline {
+  font-size: clamp(0.95rem, 2.4vw, 1.15rem);
+  color: var(--c-grey-light);
+  max-width: 44ch;
+  border-left: 2px solid var(--c-orange);
+  padding-left: 14px;
+}
+
+.legend {
+  width: 100%;
+  border-top: var(--hairline);
+  padding-top: var(--gap-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sm);
+}
+
+/* Three even columns keep the six hints on two tidy rows at any width. */
+.legend__list {
+  display: grid;
+  grid-template-columns: repeat(3, auto);
+  justify-content: start;
+  gap: 10px 24px;
+  font-size: 0.78rem;
+  color: var(--c-grey-light);
+}
+
+@media (max-width: 380px) {
+  .legend__list { grid-template-columns: repeat(2, auto); }
+}
+
+.legend__list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--c-grey-dark);
+  font-family: var(--font);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--c-white);
+  line-height: 1;
+}
+
+.key--wide { min-width: 46px; }
+
+/* --------------------------------------------------------------------------
+   7. Leaderboard screen
+   -------------------------------------------------------------------------- */
+.lb-wrap { width: 100%; }
+
+.lb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.lb-table th {
+  padding: 0 8px 10px;
+  text-align: right;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--track-wide);
+  color: var(--c-grey-mid);
+  border-bottom: 1px solid var(--c-grey-dark);
+  white-space: nowrap;
+}
+
+.lb-table th.col-rank,
+.lb-table th.col-date { text-align: left; }
+
+.lb-table td {
+  padding: 11px 8px;
+  text-align: right;
+  font-size: 0.95rem;
+  color: var(--c-grey-light);
+  border-bottom: 1px solid var(--c-grey-dark);
+  white-space: nowrap;
+}
+
+/* rank */
+.lb-table td:first-child {
+  text-align: left;
+  width: 3.2em;
+  font-weight: 700;
+  color: var(--c-grey-mid);
+}
+
+/* score */
+.lb-table td:nth-child(2) {
+  font-weight: 700;
+  color: var(--c-white);
+}
+
+/* date */
+.lb-table td:last-child {
+  text-align: left;
+  font-size: 0.8rem;
+  color: var(--c-grey-mid);
+}
+
+/* Podium row */
+.lb-table tbody tr:first-child td:first-child,
+.lb-table tbody tr:first-child td:nth-child(2) { color: var(--c-orange); }
+
+.lb-empty {
+  padding: 46px 0;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--track-wide);
+  color: var(--c-grey-mid);
+  border-bottom: 1px solid var(--c-grey-dark);
+}
+
+/* Once ui.js injects rows the empty state steps aside. */
+.lb-wrap:has(#leaderboard-list tr) .lb-empty { display: none; }
+
+/* --------------------------------------------------------------------------
+   8. Game screen
+   -------------------------------------------------------------------------- */
+#screen-game {
+  /* Single source of truth for the board width; the panel, the topbar and
+     the touch row mirror it so the whole column stays optically aligned. */
+  --board-w: min(340px, 34dvh);
+  --panel-w: 176px;
+  --game-w: calc(var(--board-w) + 24px + var(--panel-w));
+  max-width: 720px;
+  gap: var(--gap-sm);
+}
+
+.topbar {
+  width: min(100%, var(--game-w));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-sm);
+  padding-bottom: 10px;
+  border-bottom: var(--hairline);
+}
+
+.topbar__brand {
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--track-tight);
+}
+
+.topbar__brand::before {
+  content: "";
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 9px;
+  background: var(--c-orange);
+  vertical-align: baseline;
+}
+
+.topbar__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.game {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  /* Fixed, so --game-w below stays exact. */
+  gap: 24px;
+}
+
+/* --- board ---------------------------------------------------------------- */
+.board-wrap {
+  position: relative;
+  width: var(--board-w);
+  /* Hairline frame drawn as a shadow so the canvas box stays exactly 1:2. */
+  box-shadow: 0 0 0 1px var(--c-grey-dark), 0 0 44px rgba(255, 121, 0, 0.10);
+  background: var(--c-black);
+}
+
+#board {
+  width: 100%;
+  aspect-ratio: 1 / 2;
+  background: var(--c-black);
+  touch-action: none;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.86);
+  border: 1px solid var(--c-orange);
+  text-align: center;
+  padding: 16px;
+}
+
+.overlay__title {
+  font-size: clamp(1.5rem, 6vw, 2.1rem);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--track-tight);
+  color: var(--c-orange);
+}
+
+.overlay__hint {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--c-grey-light);
+}
+
+/* --- side panel ----------------------------------------------------------- */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-md);
+  width: var(--panel-w);
+  flex: 0 0 auto;
+}
+
+.panel__block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#next {
+  width: 100%;
+  max-width: 104px;
+  aspect-ratio: 4 / 9;
+  background: var(--c-black);
+  box-shadow: 0 0 0 1px var(--c-grey-dark);
+}
+
+.hud {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-md);
+  border-top: var(--hairline);
+  padding-top: var(--gap-md);
+}
+
+.hud__row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.hud__label {
+  font-size: 0.64rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--track-wide);
+  color: var(--c-grey-mid);
+}
+
+.hud__value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: var(--track-tight);
+  font-variant-numeric: tabular-nums;
+  color: var(--c-white);
+}
+
+.hud__value--hero {
+  font-size: 2rem;
+  color: var(--c-orange);
+}
+
+/* --- touch controls ------------------------------------------------------- */
+.touch {
+  display: flex;
+  gap: 8px;
+  width: min(100%, var(--game-w));
+  margin-top: 4px;
+}
+
+.touch__btn {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 58px;
+  border: 1px solid var(--c-grey-dark);
+  color: var(--c-white);
+  background: transparent;
+  touch-action: none;
+  transition: background-color 90ms linear, border-color 90ms linear, color 90ms linear;
+}
+
+.touch__btn:active {
+  background: var(--c-white);
+  border-color: var(--c-white);
+  color: var(--c-black);
+}
+
+.touch__btn--accent {
+  border-color: var(--c-orange);
+  color: var(--c-orange);
+}
+
+.touch__btn--accent:active {
+  background: var(--c-orange);
+  border-color: var(--c-orange);
+  color: var(--c-black);
+}
+
+.icon {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+/* A fine pointer means a keyboard is almost certainly present. */
+@media (pointer: fine) {
+  .touch { display: none; }
+}
+
+/* --------------------------------------------------------------------------
+   9. Game over screen
+   -------------------------------------------------------------------------- */
+.badge {
+  display: inline-block;
+  padding: 7px 14px;
+  background: var(--c-orange);
+  color: var(--c-black);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--track-wide);
+  animation: badge-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes badge-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 121, 0, 0.45); }
+  50%      { box-shadow: 0 0 22px 3px rgba(255, 121, 0, 0.45); }
+}
+
+.go-stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-md);
+  width: 100%;
+  border-top: var(--hairline);
+  border-bottom: var(--hairline);
+  padding: var(--gap-md) 0;
+}
+
+.go-stats__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gap-md);
+}
+
+.go-stats__value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: var(--track-tight);
+  font-variant-numeric: tabular-nums;
+}
+
+.go-stats__row--hero .go-stats__value {
+  font-size: clamp(2.4rem, 9vw, 3.4rem);
+  color: var(--c-orange);
+}
+
+/* --------------------------------------------------------------------------
+   10. Responsive: single column under 720px
+   -------------------------------------------------------------------------- */
+@media (max-width: 719px) {
+  .app {
+    padding:
+      calc(14px + env(safe-area-inset-top))
+      calc(14px + env(safe-area-inset-right))
+      calc(14px + env(safe-area-inset-bottom))
+      calc(14px + env(safe-area-inset-left));
+  }
+
+  .screen--active { gap: var(--gap-sm); }
+
+  .stack,
+  .screen--start .stack { gap: var(--gap-md); }
+
+  /* Board is height-led on a phone so the whole column fits without scroll. */
+  #screen-game { --board-w: min(28dvh, 76vw); }
+
+  .game {
+    flex-direction: column;
+    align-items: center;
+    gap: var(--gap-sm);
+  }
+
+  /* Panel becomes two compact strips under the board: stats, then preview. */
+  .panel {
+    width: var(--board-w);
+    gap: 10px;
+  }
+
+  .hud {
+    order: 1;
+    flex-direction: row;
+    justify-content: space-between;
+    gap: 10px;
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .hud__row {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+
+  .hud__value { font-size: clamp(0.95rem, 4.2vw, 1.2rem); }
+  .hud__value--hero { font-size: clamp(1.05rem, 5vw, 1.45rem); }
+
+  .panel__block--next {
+    order: 2;
+    gap: 5px;
+  }
+
+  /* Wide and short: the renderer lays the three queued pieces out side by
+     side, which keeps them legible without eating vertical space. */
+  #next {
+    width: 100%;
+    max-width: none;
+    height: 52px;
+    aspect-ratio: auto;
+  }
+
+  .touch {
+    width: 100%;
+    gap: 6px;
+  }
+
+  .touch__btn { min-height: 54px; }
+
+  .lb-table th.col-date,
+  .lb-table td:last-child { display: none; }
+
+  .btn-row .btn { flex: 1 1 100%; }
+}
+
+/* Desktop and large tablets. The board is height-led everywhere (a 1:2 field
+   must never overflow vertically), which on a wide, short window left it small
+   with 300px of empty black either side. There is room for a larger cap once
+   the viewport is genuinely wide: 42dvh still clears the topbar and the panel
+   at 1000x620, the shortest window this query can match. Measured: 42dvh
+   overflowed 900x600 by 3px and 40dvh overflowed 900x560 by 4px, so shorter
+   windows than 620px keep the original 34dvh rule. */
+@media (min-width: 900px) and (min-height: 620px) {
+  #screen-game { --board-w: min(420px, 40dvh); }
+}
+
+/* Short PORTRAIT phones (320x568 and friends). The touch row only exists on a
+   coarse pointer, so it never shows up in a desktop test: measured with the row
+   forced visible, the default phone column overflows 568px by ~32px. Trim the
+   board and the controls until the hard-drop button clears the fold. */
+@media (max-width: 719px) and (max-height: 700px) and (orientation: portrait) {
+  .app {
+    padding-top: calc(10px + env(safe-area-inset-top));
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+
+  .screen--active { gap: var(--gap-xs); }
+
+  #screen-game { --board-w: min(25dvh, 70vw); }
+
+  .topbar { padding-bottom: 6px; }
+
+  .btn--sm {
+    min-height: 32px;
+    padding: 5px 12px;
+  }
+
+  .panel { gap: 6px; }
+
+  #next { height: 44px; }
+
+  .touch {
+    margin-top: 0;
+    gap: 5px;
+  }
+
+  .touch__btn { min-height: 48px; }
+}
+
+/* Short landscape phones: board beside the panel, everything compressed so
+   the touch row still clears the fold. */
+@media (max-width: 900px) and (max-height: 520px) and (orientation: landscape) {
+  #screen-game { --board-w: min(32dvh, 30vw); }
+
+  .app {
+    padding-top: calc(10px + env(safe-area-inset-top));
+    padding-bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+
+  .screen--active { gap: 8px; }
+
+  .topbar { padding-bottom: 6px; }
+
+  .btn--sm {
+    min-height: 30px;
+    padding: 5px 12px;
+  }
+
+  .game { flex-direction: row; align-items: flex-start; }
+
+  .panel {
+    flex-direction: column;
+    width: 150px;
+    gap: 10px;
+  }
+
+  /* Undo the narrow-screen strip layout: back to a tall column. */
+  .panel__block--next { order: 0; }
+
+  #next {
+    order: 0;
+    width: 40px;
+    max-width: none;
+    height: auto;
+    aspect-ratio: 4 / 9;
+  }
+
+  .hud {
+    order: 0;
+    flex-direction: column;
+    gap: 6px;
+    border-top: var(--hairline);
+    padding-top: 8px;
+  }
+
+  /* Label and value on one line: the panel must stay shorter than the board. */
+  .hud__row {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .hud__value { font-size: 1rem; }
+  .hud__value--hero { font-size: 1.2rem; }
+
+  .touch {
+    margin-top: 0;
+    gap: 6px;
+  }
+
+  .touch__btn { min-height: 44px; }
+}
+
+/* --------------------------------------------------------------------------
+   11. Motion preferences
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .badge { box-shadow: none; }
+  .btn--primary:hover { box-shadow: none; }
+}
+
+/* --------------------------------------------------------------------------
+   12. Forced colours / high contrast
+   -------------------------------------------------------------------------- */
+@media (forced-colors: active) {
+  .btn,
+  .touch__btn,
+  .key { border: 1px solid ButtonText; }
+
+  .mark span,
+  .badge { forced-color-adjust: none; }
+}
