@@ -225,21 +225,24 @@
       </aside>
     </div>
 
+    <!-- Order is deliberate: rotate sits under the thumb at the far right because it
+         is the most-used action, and hard drop is exiled to the far left behind a
+         separation gap because a mis-tap costs a whole piece. -->
     <div class="touch" role="group" aria-label="Touch controls">
-      <button type="button" id="btn-left" class="touch__btn" aria-label="Move left">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 4 7 12l8 8"/></svg>
-      </button>
-      <button type="button" id="btn-rotate" class="touch__btn" aria-label="Rotate">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+      <button type="button" id="btn-drop" class="touch__btn touch__btn--quiet touch__btn--isolated" aria-label="Hard drop">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v10"/><path d="M6.5 8.5 12 14l5.5-5.5"/><path d="M4 19.5h16"/></svg>
       </button>
       <button type="button" id="btn-down" class="touch__btn" aria-label="Soft drop">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 8.5 12 16l7-7.5"/></svg>
       </button>
+      <button type="button" id="btn-left" class="touch__btn" aria-label="Move left">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 4 7 12l8 8"/></svg>
+      </button>
       <button type="button" id="btn-right" class="touch__btn" aria-label="Move right">
         <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 4 8 8-8 8"/></svg>
       </button>
-      <button type="button" id="btn-drop" class="touch__btn touch__btn--accent" aria-label="Hard drop">
-        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v10"/><path d="M6.5 8.5 12 14l5.5-5.5"/><path d="M4 19.5h16"/></svg>
+      <button type="button" id="btn-rotate" class="touch__btn touch__btn--accent" aria-label="Rotate">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
       </button>
     </div>
   </section>

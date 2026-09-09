@@ -618,6 +618,24 @@ canvas { display: block; }
   color: var(--c-black);
 }
 
+/* Hard drop: quiet by design. It is the one touch action a mis-tap cannot be
+   taken back from, so it gets no accent colour and sits behind a separation
+   gap at the far left, away from the thumb's resting arc. */
+.touch__btn--quiet {
+  border-color: var(--c-grey-dark);
+  color: var(--c-grey-light);
+}
+
+.touch__btn--quiet:active {
+  background: var(--c-grey-light);
+  border-color: var(--c-grey-light);
+  color: var(--c-black);
+}
+
+.touch__btn--isolated {
+  margin-right: clamp(8px, 3vw, 18px);
+}
+
 .icon {
   width: 24px;
   height: 24px;

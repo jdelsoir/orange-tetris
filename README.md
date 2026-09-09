@@ -21,6 +21,10 @@ and fully playable offline once it has been opened once.
 | Pause / resume | P or Esc | Pause |
 
 Touch controls appear on coarse-pointer devices and are hidden on desktop.
+The row reads, left to right: hard drop, soft drop, left, right, rotate.
+Rotate sits at the far right because it is the most-used action and the
+easiest to reach; hard drop is exiled to the far left behind a wider gap,
+since it is used once per piece and a mis-tap cannot be undone.
 
 ## Rules
 
