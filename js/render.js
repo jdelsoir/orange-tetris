@@ -47,6 +47,62 @@ const SHAPES = {
   Z: [[0, 0], [1, 0], [1, 1], [2, 1]]
 };
 
+/* Level-up "grid ignite": the field's own row lines light up from the floor
+   upward in the new level's colour. Both numbers are fractions of the run, so
+   the effect is a pure function of levelProgress like the line clear is of
+   clearProgress. 20 * STAGGER + FLASH must stay <= 1 or the top row is cut off. */
+const IGNITE_FLASH   = 0.42;  // how long a single row stays lit
+const IGNITE_PEAK    = 0.35;  // point inside a row's flash where it is brightest
+// Derived, so the topmost line finishes exactly as the run does however the
+// flash is retuned. Rounding keeps the last row a hair inside the end.
+const IGNITE_STAGGER = (1 - IGNITE_FLASH) / ROWS;
+
+/* Level colour ramp. Eight brand hues carry levels 1-8; 9 and 10 stay on brand
+   orange, because the Orange palette has eight usable hues on black and a ninth
+   would be off-brand. The HUD escalates those two with a glow instead. */
+export const LEVEL_COLORS = Object.freeze([
+  '#FFFFFF', // 1
+  '#4BB4E6', // 2  blue
+  '#50BE87', // 3  green
+  '#A885D8', // 4  purple
+  '#FFB4E6', // 5  pink
+  '#FFD200', // 6  yellow
+  '#F16E00', // 7  deep orange
+  '#FF7900', // 8  brand orange
+  '#FF7900', // 9  + glow
+  '#FF7900'  // 10 + white-hot glow
+]);
+
+/* The ramp runs out of hues at 8, so the last two levels escalate with a glow
+   instead. HUD-only: the board never paints text. '' means no glow. */
+export const LEVEL_GLOWS = Object.freeze([
+  '', '', '', '', '', '', '', '',
+  '0 0 22px rgba(255, 121, 0, 0.55)',   // 9
+  '0 0 34px rgba(255, 255, 255, 0.75)'  // 10, max speed
+]);
+
+function rampIndex(level) {
+  const n = Number(level);
+  if (!isFinite(n)) return 0;
+  return Math.max(1, Math.min(LEVEL_COLORS.length, Math.trunc(n))) - 1;
+}
+
+/**
+ * @param {number} level 1-based level; anything out of range is clamped.
+ * @returns {string} the ramp colour for that level.
+ */
+export function levelGlow(level) {
+  return LEVEL_GLOWS[rampIndex(level)];
+}
+
+/**
+ * @param {number} level 1-based level; anything out of range is clamped.
+ * @returns {string} the ramp colour for that level.
+ */
+export function levelColor(level) {
+  return LEVEL_COLORS[rampIndex(level)];
+}
+
 /* Line-clear animation beats, in clearProgress units. */
 const BEAT_FLASH_END = 0.35; // 0.00 -> 0.35 : ramp the rows to white
 const BEAT_WIPE_END  = 0.80; // 0.35 -> 0.80 : wipe outward from the centre
@@ -250,8 +306,10 @@ export class Renderer {
   draw(state, anim) {
     this._sync();
     const p = clamp01(anim && typeof anim.clearProgress === 'number' ? anim.clearProgress : 0);
+    const lp = clamp01(anim && typeof anim.levelProgress === 'number' ? anim.levelProgress : 0);
+    const lc = (anim && typeof anim.levelColor === 'string' && anim.levelColor) || BRAND;
     const reduced = !!(anim && anim.reducedMotion);
-    this._drawBoard(state, p, reduced);
+    this._drawBoard(state, p, reduced, lp, lc);
     this._drawNext(state);
   }
 
@@ -259,7 +317,7 @@ export class Renderer {
    * Board
    * -------------------------------------------------------------- */
 
-  _drawBoard(state, p, reduced) {
+  _drawBoard(state, p, reduced, lp, lc) {
     const ctx = this.bctx;
     const m = this.bm;
     if (!ctx || !m) return;
@@ -325,6 +383,9 @@ export class Renderer {
         : 0;
     }
 
+    // Level-up ignite: over the stack, under the border. Pure function of lp.
+    if (lp > 0 && lp < 1 && !reduced) this._drawIgnite(ctx, m, lp, lc);
+
     ctx.globalAlpha = 1;
     this._drawBorder(ctx, m);
     if (glow > 0) this._drawGlow(ctx, m, glow);
@@ -345,6 +406,33 @@ export class Renderer {
     for (let r = 0; r <= ROWS; r++) {
       const y = m.oy + r * m.cell - (r === ROWS ? lw : 0);
       ctx.fillRect(m.ox, y, m.fw, lw);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /**
+   * Level-up ignite: the ROWS+1 horizontal grid lines light up one after the
+   * other from the floor upward, each widening from the centre as it brightens.
+   * Deterministic: the same lp always paints the same frame.
+   */
+  _drawIgnite(ctx, m, lp, color) {
+    const lw = m.line * 2;
+    ctx.fillStyle = color;
+    for (let r = ROWS; r >= 0; r--) {
+      const fromBottom = ROWS - r;
+      const local = (lp - fromBottom * IGNITE_STAGGER) / IGNITE_FLASH;
+      if (local <= 0 || local >= 1) continue;
+
+      const rising = local < IGNITE_PEAK;
+      const alpha = rising
+        ? local / IGNITE_PEAK
+        : 1 - (local - IGNITE_PEAK) / (1 - IGNITE_PEAK);
+      const spread = rising ? 0.2 + 0.8 * (local / IGNITE_PEAK) : 1;
+
+      const w = m.fw * spread;
+      const y = m.oy + r * m.cell - (r === ROWS ? lw : 0);
+      ctx.globalAlpha = alpha * 0.9;
+      ctx.fillRect(m.ox + (m.fw - w) / 2, y, w, lw);
     }
     ctx.globalAlpha = 1;
   }

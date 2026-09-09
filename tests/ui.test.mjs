@@ -9,7 +9,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { UI, collectDom, SCREEN_IDS, ELEMENT_IDS, CLEAR_MS, CLEAR_MS_REDUCED, DAS_MS, ARR_MS } from '../js/ui.js';
+import { UI, collectDom, SCREEN_IDS, ELEMENT_IDS, CLEAR_MS, CLEAR_MS_REDUCED, LEVEL_MS, DAS_MS, ARR_MS } from '../js/ui.js';
 import { Engine, COLS, ROWS } from '../js/engine.js';
 
 /* ------------------------------------------------------------------ *
@@ -45,7 +45,11 @@ class El {
     this.classList = new ClassList();
     this.children = [];
     this.hidden = false;
-    this.style = {};
+    this.style = {
+      props: new Map(),
+      setProperty(k, v) { this.props.set(k, String(v)); },
+      getPropertyValue(k) { return this.props.has(k) ? this.props.get(k) : ''; }
+    };
     this.attrs = {};
     this.clientWidth = 0;
     this.clientHeight = 0;
@@ -980,4 +984,116 @@ test('the controller survives a DOM that is missing everything', () => {
     ui.resize();
     ui.destroy();
   });
+});
+
+
+/* ------------------------------------------------------------------ *
+ * Level-up: grid ignite + the recoloured level readout
+ * ------------------------------------------------------------------ */
+
+/** Drive a run to the clear that takes it from `lines` to the next level. */
+function levelUp(ui, engine, lines = 9) {
+  ui.newGame();
+  engine.lines = lines;
+  setUpClear(engine);
+  ui.step(16);         // enters the clear
+  ui.step(CLEAR_MS);   // finishes it, commitClear raises the level
+}
+
+test('crossing ten lines raises the level and arms the ignite', () => {
+  const { ui, engine, dom } = harness();
+  levelUp(ui, engine);
+
+  assert.equal(engine.level, 2);
+  assert.equal(dom.hudLevel.textContent, '2');
+  assert.equal(ui.anim.levelColor, '#4BB4E6');
+  assert.equal(ui.anim.levelProgress, 0, 'the clock only starts on the next frame');
+});
+
+test('the level readout is repainted in the new level colour', () => {
+  const { ui, engine, dom } = harness();
+  levelUp(ui, engine);
+
+  const slot = dom.hudLevelSlot;
+  assert.equal(slot.style.getPropertyValue('--c-level'), '#4BB4E6');
+  assert.equal(slot.style.getPropertyValue('--c-level-prev'), '#FFFFFF');
+  assert.equal(dom.hudLevelGhost.textContent, '1', 'the ghost carries the old digit');
+  assert.ok(slot.classList.contains('is-levelup'), 'the cut animation is armed');
+});
+
+test('the ignite ramps, then clears itself after LEVEL_MS', () => {
+  const { ui, engine } = harness();
+  levelUp(ui, engine);
+
+  ui.step(280);
+  const mid = ui.anim.levelProgress;
+  assert.ok(mid > 0 && mid < 1, `expected a partial ramp, got ${mid}`);
+
+  ui.step(120);
+  assert.ok(ui.anim.levelProgress > mid, 'progress advances monotonically');
+
+  ui.step(LEVEL_MS);
+  assert.equal(ui.anim.levelProgress, 0);
+  assert.equal(ui.anim.levelColor, null);
+});
+
+test('pause freezes the ignite', () => {
+  const { ui, engine } = harness();
+  levelUp(ui, engine);
+  ui.step(200);
+  const held = ui.anim.levelProgress;
+
+  engine.paused = true;
+  ui.step(200);
+  assert.equal(ui.anim.levelProgress, held);
+
+  engine.paused = false;
+  ui.step(100);
+  assert.ok(ui.anim.levelProgress > held);
+});
+
+test('reduced motion keeps the recolour and drops the ignite', () => {
+  const { ui, engine, win, dom } = harness();
+  win.reducedMotion = true;
+  levelUp(ui, engine);
+
+  assert.equal(engine.level, 2);
+  assert.equal(dom.hudLevelSlot.style.getPropertyValue('--c-level'), '#4BB4E6',
+    'the colour carries the information, so it stays');
+  assert.equal(ui.anim.levelColor, null, 'no ignite');
+  ui.step(200);
+  assert.equal(ui.anim.levelProgress, 0);
+});
+
+test('a new game resets the ignite and repaints level 1', () => {
+  const { ui, engine, dom } = harness();
+  levelUp(ui, engine);
+  ui.step(200);
+  assert.ok(ui.anim.levelProgress > 0);
+
+  ui.newGame();
+  assert.equal(ui.anim.levelProgress, 0);
+  assert.equal(ui.anim.levelColor, null);
+  assert.equal(dom.hudLevel.textContent, '1');
+  assert.equal(dom.hudLevelSlot.style.getPropertyValue('--c-level'), '#FFFFFF');
+  assert.equal(dom.hudLevelGhost.textContent, '', 'no ghost on a reset');
+});
+
+test('reaching level 9 and 10 sets the escalating glow', () => {
+  const nine = harness();
+  levelUp(nine.ui, nine.engine, 79);
+  assert.equal(nine.engine.level, 9);
+  assert.match(nine.dom.hudLevelSlot.style.getPropertyValue('--c-level-glow'), /rgba\(255, 121, 0/);
+
+  const ten = harness();
+  levelUp(ten.ui, ten.engine, 89);
+  assert.equal(ten.engine.level, 10);
+  assert.match(ten.dom.hudLevelSlot.style.getPropertyValue('--c-level-glow'), /rgba\(255, 255, 255/);
+});
+
+test('levels below nine carry no glow', () => {
+  const { ui, engine, dom } = harness();
+  levelUp(ui, engine, 29);
+  assert.equal(engine.level, 4);
+  assert.equal(dom.hudLevelSlot.style.getPropertyValue('--c-level-glow'), 'none');
 });

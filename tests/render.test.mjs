@@ -10,7 +10,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Renderer } from '../js/render.js';
+import { Renderer, LEVEL_COLORS, LEVEL_GLOWS, levelColor, levelGlow } from '../js/render.js';
 import { Engine, COLS, ROWS } from '../js/engine.js';
 
 /* ------------------------------------------------------------------ *
@@ -252,4 +252,98 @@ test('a shrinking CSS box is picked up by the next resize()', () => {
   const engine = new Engine(seeded(9));
   engine.start();
   assert.doesNotThrow(() => renderer.draw(engine, { clearProgress: 0 }));
+});
+
+
+/* ------------------------------------------------------------------ *
+ * Level colour ramp + grid ignite
+ * ------------------------------------------------------------------ */
+
+test('levelColor walks the brand ramp and clamps at both ends', () => {
+  assert.equal(LEVEL_COLORS.length, 10);
+  assert.equal(levelColor(1), '#FFFFFF');
+  assert.equal(levelColor(2), '#4BB4E6');
+  assert.equal(levelColor(7), '#F16E00');
+  assert.equal(levelColor(8), '#FF7900');
+  assert.equal(levelColor(10), '#FF7900');
+
+  // Out of range and junk clamp rather than throwing or returning undefined.
+  assert.equal(levelColor(0), '#FFFFFF');
+  assert.equal(levelColor(-4), '#FFFFFF');
+  assert.equal(levelColor(11), '#FF7900');
+  assert.equal(levelColor(NaN), '#FFFFFF');
+  assert.equal(levelColor(undefined), '#FFFFFF');
+  assert.equal(levelColor('3'), '#50BE87');
+});
+
+test('every ramp colour is an Orange brand token', () => {
+  const BRAND_HEXES = new Set([
+    '#FF7900', '#F16E00', '#FFFFFF', '#D6D6D6', '#8F8F8F', '#595959',
+    '#4BB4E6', '#50BE87', '#FFB4E6', '#A885D8', '#FFD200'
+  ]);
+  for (const hex of LEVEL_COLORS) {
+    assert.ok(BRAND_HEXES.has(hex), `${hex} is not an Orange brand token`);
+  }
+});
+
+test('the ignite paints only while levelProgress is inside (0, 1)', () => {
+  const { renderer, board } = makeRenderer();
+  const engine = new Engine(seeded(3));
+  engine.start();
+
+  const frameAt = (levelProgress, reducedMotion = false) => {
+    board.log.length = 0;
+    renderer.draw(engine, { clearProgress: 0, levelProgress, levelColor: '#4BB4E6', reducedMotion });
+    return board.log.slice();
+  };
+
+  const idle = frameAt(0);
+  assert.deepEqual(frameAt(1), idle, 'nothing once it has finished');
+
+  const lit = frameAt(0.3);
+  assert.ok(lit.length > idle.length, 'row lines are lit mid-run');
+
+  // Every extra op is a translucent row line in the level colour.
+  const extra = lit.filter((op) => !idle.includes(op));
+  assert.ok(extra.length > 0);
+  for (const op of extra) {
+    assert.match(op, /^fillRect .*#4BB4E6 a=0\./, `unexpected ignite op: ${op}`);
+  }
+});
+
+test('the ignite is deterministic, sweeps upward, and yields to reduced motion', () => {
+  const { renderer, board } = makeRenderer();
+  const engine = new Engine(seeded(3));
+  engine.start();
+
+  const frameAt = (levelProgress, reducedMotion = false) => {
+    board.log.length = 0;
+    renderer.draw(engine, { clearProgress: 0, levelProgress, levelColor: '#4BB4E6', reducedMotion });
+    return board.log.slice();
+  };
+
+  const idle = frameAt(0);
+  assert.deepEqual(frameAt(0.42), frameAt(0.42), 'the same progress paints the same frame');
+  assert.notDeepEqual(frameAt(0.42), frameAt(0.66), 'different progress paints a different frame');
+  assert.deepEqual(frameAt(0.42, true), idle, 'reduced motion drops the ignite');
+
+  // The wave starts at the floor and climbs: the lit rows sit higher up the
+  // board later in the run (canvas y grows downward, so the mean y falls).
+  const meanY = (p) => {
+    const lit = frameAt(p).filter((op) => !idle.includes(op));
+    const ys = lit.map((op) => Number(op.split(' ')[1].split(',')[1]));
+    return ys.reduce((a, b) => a + b, 0) / ys.length;
+  };
+  assert.ok(meanY(0.75) < meanY(0.15), 'the ignite sweeps bottom to top');
+});
+
+
+test('only levels 9 and 10 carry a glow, and it escalates', () => {
+  assert.equal(LEVEL_GLOWS.length, LEVEL_COLORS.length);
+  for (let lv = 1; lv <= 8; lv++) assert.equal(levelGlow(lv), '', `level ${lv} must not glow`);
+  assert.match(levelGlow(9), /rgba\(255, 121, 0/, 'level 9 glows orange');
+  assert.match(levelGlow(10), /rgba\(255, 255, 255/, 'level 10 goes white-hot');
+  assert.equal(levelGlow(0), '');
+  assert.equal(levelGlow(99), levelGlow(10), 'out of range clamps to max');
+  assert.equal(levelGlow(NaN), '');
 });

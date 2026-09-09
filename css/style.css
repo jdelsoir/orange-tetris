@@ -579,6 +579,69 @@ canvas { display: block; }
   color: var(--c-orange);
 }
 
+/* Level readout. Twice the size of the other two values and coloured by the
+   level itself, so the thing that changes on a level-up is the thing you can
+   actually see change. --c-level / --c-level-prev are written by ui.js. */
+.hud__value--level {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  font-size: 3.2rem;
+  color: var(--c-level, var(--c-white));
+}
+
+/* Column so the rule underneath is exactly as wide as the digits, at every
+   breakpoint, rather than stretching to whatever the HUD column happens to be. */
+.hud__digits {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 5px;
+  line-height: 1;
+}
+
+/* The outgoing level, offset behind the new digit for three frames. */
+.hud__digit {
+  text-shadow: var(--c-level-glow, none);
+}
+
+.hud__ghost {
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  color: var(--c-level-prev, var(--c-grey-mid));
+  pointer-events: none;
+}
+
+.hud__rule {
+  display: block;
+  height: 2px;
+  background: var(--c-level, var(--c-white));
+}
+
+/* Hard cut, matching the arcade feel of the grid ignite on the board: the new
+   digit steps in over 3 frames while the ghost slides off in one. The global
+   prefers-reduced-motion block above collapses both to nothing. */
+.hud__value--level.is-levelup .hud__digit {
+  animation: hud-cut 240ms steps(3, end) both;
+}
+
+.hud__value--level.is-levelup .hud__ghost {
+  animation: hud-ghost 300ms steps(1, end) both;
+}
+
+@keyframes hud-cut {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes hud-ghost {
+  0%   { opacity: 0.85; transform: translate(3px, -2px); }
+  100% { opacity: 0;    transform: translate(9px, -5px); }
+}
+
 /* --- touch controls ------------------------------------------------------- */
 .touch {
   display: flex;
@@ -750,6 +813,8 @@ canvas { display: block; }
 
   .hud__value { font-size: clamp(0.95rem, 4.2vw, 1.2rem); }
   .hud__value--hero { font-size: clamp(1.05rem, 5vw, 1.45rem); }
+  .hud__value--level { font-size: clamp(1.8rem, 9vw, 2.35rem); }
+  .hud__digits { gap: 4px; }
 
   .panel__block--next {
     order: 2;
@@ -809,6 +874,8 @@ canvas { display: block; }
     min-height: 32px;
     padding: 5px 12px;
   }
+
+  .hud__value--level { font-size: clamp(1.5rem, 7.5vw, 1.95rem); }
 
   .panel { gap: 6px; }
 
@@ -878,6 +945,8 @@ canvas { display: block; }
 
   .hud__value { font-size: 1rem; }
   .hud__value--hero { font-size: 1.2rem; }
+  .hud__value--level { font-size: 1.6rem; }
+  .hud__digits { gap: 3px; }
 
   .touch {
     margin-top: 0;

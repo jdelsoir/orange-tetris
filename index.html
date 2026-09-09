@@ -217,9 +217,18 @@
             <dt class="hud__label">Lines</dt>
             <dd class="hud__value" id="hud-lines">0</dd>
           </div>
-          <div class="hud__row">
+          <div class="hud__row hud__row--level">
             <dt class="hud__label">Level</dt>
-            <dd class="hud__value" id="hud-level">1</dd>
+            <!-- The digit hard-cuts to the new level while a ghost of the old
+                 one slips away behind it; the rule under it carries the level
+                 colour. ui.js owns --c-level / --c-level-prev. -->
+            <dd class="hud__value hud__value--level" id="hud-level-slot">
+              <span class="hud__digits">
+                <span class="hud__ghost" id="hud-level-ghost" aria-hidden="true"></span>
+                <span class="hud__digit" id="hud-level">1</span>
+                <span class="hud__rule"></span>
+              </span>
+            </dd>
           </div>
         </dl>
       </aside>

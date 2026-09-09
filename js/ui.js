@@ -11,6 +11,7 @@
  */
 
 import * as defaultScores from './leaderboard.js';
+import { levelColor, levelGlow } from './render.js';
 
 /* ------------------------------------------------------------------ *
  * Tunables
@@ -19,6 +20,9 @@ import * as defaultScores from './leaderboard.js';
 /** Line-clear animation length, and its prefers-reduced-motion counterpart. */
 export const CLEAR_MS = 450;
 export const CLEAR_MS_REDUCED = 120;
+
+/** Level-up ignite length. Skipped outright under prefers-reduced-motion. */
+export const LEVEL_MS = 700;
 
 /** Autorepeat: delayed auto shift, then auto repeat rate. */
 export const DAS_MS = 170;
@@ -51,6 +55,8 @@ export const ELEMENT_IDS = Object.freeze({
   hudScore: 'hud-score',
   hudLines: 'hud-lines',
   hudLevel: 'hud-level',
+  hudLevelSlot: 'hud-level-slot',
+  hudLevelGhost: 'hud-level-ghost',
   pauseOverlay: 'pause-overlay',
   btnPause: 'btn-pause',
   btnQuit: 'btn-quit',
@@ -133,7 +139,7 @@ export class UI {
       (typeof document !== 'undefined' ? document : null);
 
     /** Handed to renderer.draw() every frame. */
-    this.anim = { clearProgress: 0, reducedMotion: false };
+    this.anim = { clearProgress: 0, levelProgress: 0, levelColor: null, reducedMotion: false };
 
     /** @type {'start'|'game'|'leaderboard'|'gameover'} */
     this.screen = 'start';
@@ -234,6 +240,7 @@ export class UI {
     this._clearing = false;
     this._clearElapsed = 0;
     this.anim.clearProgress = 0;
+    this._endLevelUp();
     this._gameOverShown = false;
     this._hud = { score: null, lines: null, level: null };
     this._pauseShown = null;
@@ -262,6 +269,7 @@ export class UI {
     this._releaseHolds();
     this._clearing = false;
     this.anim.clearProgress = 0;
+    this._endLevelUp();
     this.showScreen('start');
     this._focus(this.dom.btnNewGame);
     return this;
@@ -333,6 +341,10 @@ export class UI {
   step(dt) {
     const e = this.engine;
     if (!e) return;
+
+    // The ignite is an overlay, not a beat in the game: it keeps running while
+    // the next piece falls and only freezes on pause.
+    if (this._levelUp && !e.paused) this._advanceLevelUp(dt);
 
     if (e.phase === 'clearing') {
       // Gravity never advances here: engine.tick() is not called at all.
@@ -696,7 +708,84 @@ export class UI {
     if (!e) return;
     this._setNumber('hudScore', 'score', e.score);
     this._setNumber('hudLines', 'lines', e.lines);
+
+    const before = this._hud.level;
     this._setNumber('hudLevel', 'level', e.level);
+    const after = this._hud.level;
+    if (after === before) return;
+
+    // A rise is a level-up and gets the animation; anything else (a new game
+    // resetting to 1) just repaints in the new colour.
+    if (typeof before === 'number' && after > before) this._beginLevelUp(before, after);
+    else this._paintLevel(after, null);
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Level-up
+   * ---------------------------------------------------------------- */
+
+  /**
+   * @param {number} from level just left behind
+   * @param {number} to   level just reached
+   */
+  _beginLevelUp(from, to) {
+    this._paintLevel(to, from);
+    // Reduced motion keeps the recolour, which carries the information, and
+    // drops the ignite and the cut, which only carry the drama.
+    if (this.prefersReducedMotion()) {
+      this._levelUp = false;
+      this.anim.levelProgress = 0;
+      this.anim.levelColor = null;
+      return;
+    }
+    this._levelUp = true;
+    this._levelElapsed = 0;
+    this.anim.levelProgress = 0;
+    this.anim.levelColor = levelColor(to);
+    this._restartLevelCut();
+  }
+
+  _advanceLevelUp(dt) {
+    const step = isFinite(dt) && dt > 0 ? dt : 0;
+    this._levelElapsed += step;
+    const p = this._levelElapsed / LEVEL_MS;
+    this.anim.levelProgress = p >= 1 ? 1 : p;
+    if (this._levelElapsed >= LEVEL_MS) this._endLevelUp();
+  }
+
+  _endLevelUp() {
+    this._levelUp = false;
+    this._levelElapsed = 0;
+    this.anim.levelProgress = 0;
+    this.anim.levelColor = null;
+  }
+
+  /**
+   * Paint the level colour onto the HUD.
+   * @param {number} level
+   * @param {number|null} from previous level, or null for a plain repaint.
+   */
+  _paintLevel(level, from) {
+    const slot = this.dom.hudLevelSlot;
+    if (slot && slot.style && typeof slot.style.setProperty === 'function') {
+      slot.style.setProperty('--c-level', levelColor(level));
+      // Levels 9 and 10 share brand orange with 8, so they escalate with a glow.
+      slot.style.setProperty('--c-level-glow', levelGlow(level) || 'none');
+      if (from != null) slot.style.setProperty('--c-level-prev', levelColor(from));
+    }
+    const ghost = this.dom.hudLevelGhost;
+    if (ghost) ghost.textContent = from != null ? String(from) : '';
+  }
+
+  /** Re-run the CSS cut by taking the class off, reflowing, and putting it back. */
+  _restartLevelCut() {
+    const slot = this.dom.hudLevelSlot;
+    if (!slot || !slot.classList) return;
+    slot.classList.remove('is-levelup');
+    // Reading a layout property between the two flushes the removal, without
+    // which the browser coalesces them and the animation never restarts.
+    void slot.offsetWidth;
+    slot.classList.add('is-levelup');
   }
 
   _setNumber(domKey, hudKey, value) {

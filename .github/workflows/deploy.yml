@@ -29,8 +29,8 @@ jobs:
 
       # The suite runs locally with `node --test tests/`; it is not part of the site.
       # This only touches the ephemeral checkout, never the repository.
-      - name: Keep the test suite out of the published site
-        run: rm -rf tests
+      - name: Keep the test suite and design sources out of the published site
+        run: rm -rf tests design
 
       # Rotate the service-worker cache name on every deploy. Without this the
       # cache name is fixed and returning visitors keep the old assets forever.

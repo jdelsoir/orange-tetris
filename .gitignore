@@ -1,1 +1,5 @@
 .DS_Store
+
+# Seeded design-canvas payload: a ~2 MB build artifact, regenerated from the
+# .dc.html sources beside it. The sources are tracked; this is not.
+design/*.html
