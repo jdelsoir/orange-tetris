@@ -1,32 +1,30 @@
 {
   "artboards": [
-    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 390, "h": 844, "title": "A · Shard burst — mobile", "is_interactive": true },
-    { "file": "Desktop.dc.html", "x": 510, "y": 0, "w": 1440, "h": 900, "title": "A · Shard burst — desktop", "is_interactive": true },
-    { "file": "OptionB.dc.html", "x": 0, "y": 1020, "w": 390, "h": 844, "title": "B · Ember rise", "is_interactive": true },
-    { "file": "OptionC.dc.html", "x": 510, "y": 1020, "w": 390, "h": 844, "title": "C · Grid ignite", "is_interactive": true },
-    { "file": "MotionSpec.dc.html", "x": 1020, "y": 1020, "w": 900, "h": 844, "title": "Spec · ramp + timings" }
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 390, "h": 844, "title": "Grid ignite — mobile", "is_interactive": true },
+    { "file": "Desktop.dc.html", "x": 510, "y": 0, "w": 1440, "h": 900, "title": "Grid ignite — desktop", "is_interactive": true },
+    { "file": "MotionSpec.dc.html", "x": 0, "y": 1020, "w": 900, "h": 844, "title": "Spec · ramp + timings" }
   ],
   "annotations": [
     {
-      "id": "pick-a",
+      "id": "shipped",
       "x": -320,
       "y": 40,
       "w": 260,
-      "text": "Leading option.\nThe burst comes out of the level number itself, so the thing that changed is the thing that moves. Nothing lands over the board, where you are still reading the next piece."
+      "text": "Shipped.\nThe grid's own row lines ignite from the floor upward in the new level's colour, and the digit hard-cuts with a ghost of the old one. No particles."
     },
     {
       "id": "level-visibility",
       "x": -320,
       "y": 320,
       "w": 260,
-      "text": "Level readout is 2.35rem on mobile (was 1.2rem) and 3.2rem on desktop (was 1.5rem), with a 2px rule under it in the level colour. Score keeps the orange hero slot."
+      "text": "Level readout is 2.35rem on mobile (was 1.2rem) and 3.2rem on desktop (was 1.5rem), with a 2px rule under it in the level colour. Score keeps the orange hero slot, lines stay white."
     },
     {
-      "id": "alternates",
+      "id": "ramp-note",
       "x": -320,
       "y": 1060,
       "w": 260,
-      "text": "Two other directions, each with its tradeoff written on the artboard. All three share the same colour ramp, so picking one does not change the level colours."
+      "text": "Eight brand hues cover levels 1-8. Nine and ten stay on brand orange and escalate with a glow, orange then white-hot, because the palette has no ninth usable hue on black."
     }
   ],
   "launch": { "view": "canvas" }
